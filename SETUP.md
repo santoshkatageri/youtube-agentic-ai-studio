@@ -198,3 +198,79 @@ python gui.py
 ---
 
 If you get stuck, [open an issue](https://github.com/yourusername/youtube-ai-agent/issues) with your error message and OS.
+
+
+## Connect Canva inside YAAS
+
+The integration uses **Canva for your platform (REST APIs)**, not a Canva editor
+app or a plugin connection in ChatGPT. Follow the [official quickstart](https://www.canva.dev/docs/apps/quickstart/)
+for current Developer Portal labels and account eligibility.
+
+1. Open the Canva Developer Portal and create an app. In development, use an
+   account authorized to test it; public distribution requires Canva's review.
+2. Under **Outside Canva**, click **Start integrating**. Enable **Canva REST APIs**.
+3. In Configuration, generate a client secret and copy the client ID. Request only
+   `design:meta:read` and `design:content:read` for this integration.
+4. Register this redirect URL exactly:
+   `http://127.0.0.1:7070/api/canva/callback`
+   If you change the studio port, update both Canva and YAAS to match.
+5. Launch YAAS and open **Scene Board → Set up the Canva connection**. Enter the
+   client ID, secret, and registered redirect URL. Save, then click **Connect Canva**.
+6. Approve the requested access on Canva. After returning to YAAS, search your
+   designs, select a page number, choose PNG or MP4, and import it into a scene.
+
+The browser uses the registered `127.0.0.1` origin for sign-in even if you opened
+YAAS at `localhost`. Credentials are stored in the ignored `.env` file. OAuth
+access/refresh tokens stay in the ignored `.canva_tokens.json` with owner-only
+file permissions. Don't commit either file. Disconnect revokes Canva access and
+removes the saved tokens.
+
+Export jobs are polled without starting another export. After a browser reload,
+use **Check existing export** to resume. A changed draft requires a fresh scene
+selection; **Clear export selection** unlocks the picker without deleting anything
+in Canva. Restarting the studio during sign-in requires connecting again.
+
+Imports are limited to a single design page in PNG/MP4 format, up to 250 MB.
+Unsupported formats and designs with inaccessible premium elements can fail;
+YAAS reports the error rather than silently substituting a different asset.
+Only existing-design exports are used—no Canva AI-generation calls.
+
+
+## Optional: Cloudflare Tunnel and Access
+
+For the current Flask app, keep the UI and backend on one hostname:
+
+`https://yaas.learnwithsk.dev → Cloudflare Access → Tunnel → http://127.0.0.1:7070`
+
+Cloudflare Pages can host the static HTML, but splitting it from the backend
+requires additional API/media routing and authentication handling. A single
+Tunnel hostname keeps the existing relative URLs and Canva sign-in working.
+
+1. Create a Cloudflare Access self-hosted application for the **entire hostname**.
+   Allow only your intended identity. Configure the tunnel to **Protect with Access**
+   so the connector validates Access tokens before forwarding requests. Don't
+   exempt API, file, or OAuth callback routes from the Access policy.
+2. Run the origin bound only to `127.0.0.1`. Route the hostname through a named
+   tunnel to `http://127.0.0.1:7070`; no inbound router port forwarding is needed.
+3. In the local `.env`, set `STUDIO_BEHIND_PROXY=1` and a persistent random
+   `STUDIO_SESSION_SECRET` of at least 32 characters. This trusts one proxy's
+   forwarded HTTPS scheme and uses secure session cookies. Enable this mode only
+   behind the trusted local connector; it is **not** an Access token validator.
+4. Set `CANVA_REDIRECT_URI=https://yaas.learnwithsk.dev/api/canva/callback` in YAAS
+   and register that exact HTTPS URL in the Canva Developer Portal.
+5. Bypass caching for this private studio hostname. Use one application process with multiple threads for remote operation. The
+   current run state and progress events are held in memory, so multiple worker
+   processes are not supported. Use a production WSGI server rather than Flask's
+   development server for ongoing hosted use.
+6. Verify Access blocks unauthorized requests to HTML, APIs, and video files;
+   then test Canva sign-in, progress events, uploads, and video seeking through
+   the hostname. Cloudflare's plan-specific request-size limits also apply.
+
+The Mac must remain awake, online, and running the origin and tunnel. Media,
+credentials, and rendering remain on the Mac. This is a single-user studio, not
+an isolated multi-user service. Publishing DNS, creating the Access policy, and
+starting a tunnel are separate deployment steps; this repository change does
+not publish the app.
+
+Official guides: [Cloudflare Tunnel](https://developers.cloudflare.com/tunnel/get-started/)
+and [Access self-hosted applications](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/self-hosted-public-app/).

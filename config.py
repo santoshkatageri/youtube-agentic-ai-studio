@@ -133,14 +133,11 @@ VOICE_PITCH = "-3Hz"    # slightly deeper = more cinematic
 #  Starting model for the fallback chain — the system auto-switches
 #  through all models below if quota or errors are hit.
 #  Change this in the GUI under Settings → AI Model, or here directly.
-#  Options (free tier):
-#    gemini-2.5-flash        — highest quality   (500 req/day)
-#    gemma-4-31b-it          — Gemma 4 31B       (500 req/day)
-#    gemini-2.0-flash        — recommended       (1500 req/day)  ← default
-#    gemini-2.0-flash-lite   — fastest           (1500 req/day)
-#    gemini-1.5-flash-001    — reliable fallback (1500 req/day)
+#  Current options: gemini-3.8-flash, gemini-3.5-flash-lite,
+#  gemini-3.6-flash, gemini-3.1-flash-lite, gemma-4-31b-it.
+#  Availability and quotas depend on your Google AI Studio project.
 # ─────────────────────────────────────────
-GEMINI_MODEL = "gemini-2.0-flash"
+GEMINI_MODEL = "gemini-3.8-flash"
 
 # ─────────────────────────────────────────
 #  Video Dimensions

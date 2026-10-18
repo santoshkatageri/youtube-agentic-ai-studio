@@ -21,6 +21,28 @@ YAAS researches a topic, checks the facts, writes the script, records a voiceove
 
 ---
 
+## LearnWithSK scene review and Canva connection
+
+This fork adds a **Scene Board for Shorts**. Choose Short on Home and leave
+**Review Shorts scenes first** enabled. The run stops after research and scripting.
+Edit the narration and visual brief for each scene, then approve the scenes to render.
+
+Attach PNG/JPG graphics or MP4 recordings to a scene, or connect Canva inside the
+Scene Board to search your designs and import a single page as PNG or MP4. The
+Canva panel includes one-time developer setup instructions; see [SETUP.md](SETUP.md#connect-canva-inside-yaas).
+This uses Canva's REST APIs, independently of any ChatGPT/Codex plugin.
+It exports existing designs, not Canva stock-library search or AI generation.
+
+Imported assets retain their full frame; recording audio is muted in favor of
+narration. Short clips hold their final frame. Stock images stay within their own
+scene instead of looping through the whole video. Boundaries follow the caption
+transcript when it matches the script (interpolated inside a caption); older or
+mismatched captions fall back to proportional text timing. Always check the preview.
+
+Canva requires your developer client credentials and account authorization.
+Premium-element/export restrictions still depend on your Canva account. Flow and
+Higgsfield generation and credit-ledger automation are outside this first change.
+
 ## ⚡ Quick start
 
 ```bash

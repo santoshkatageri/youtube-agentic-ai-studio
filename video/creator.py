@@ -10,8 +10,8 @@ Runs fully offline: MoviePy 1.0.3 + Pillow + NumPy.
 """
 import os, re, math
 import numpy as np
-from PIL import Image, ImageDraw, ImageFont, ImageFilter
-from moviepy.editor import VideoClip, AudioFileClip, concatenate_videoclips
+from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageOps
+from moviepy.editor import VideoClip, VideoFileClip, AudioFileClip, concatenate_videoclips
 
 import config
 
@@ -540,10 +540,10 @@ SHORTS_IMG_DURATION = 2.5   # seconds of visible time per image (before fade)
 # Caption styling
 CAP_BG        = (0, 0, 0, 180)
 CAP_FG        = (255, 255, 255)
-CAP_FONT_SIZE = 56           # large for vertical mobile viewing
+CAP_FONT_SIZE = 68           # large for vertical mobile viewing
 
 # Vignette darkness at edges
-VIGNETTE_STRENGTH = 0.55
+VIGNETTE_STRENGTH = 0.20
 
 # FIX: Vignette is now built with NumPy (vectorised) instead of a Python
 # double-for-loop over millions of pixels — ~100× faster.
@@ -613,13 +613,14 @@ def _draw_shorts_caption(frame_img: Image.Image, text: str) -> Image.Image:
 
     # Measure text before drawing
     measure_draw = ImageDraw.Draw(base_rgba)
-    font         = _load_font("bold", CAP_FONT_SIZE)
-    max_w        = W - 80
+    font_size    = max(12, round(CAP_FONT_SIZE * W / 1080))
+    font         = _load_font("bold", font_size)
+    max_w        = int(W * 0.84)
     lines        = _wrap_text(measure_draw, text.upper(), font, max_w)
 
-    line_h  = CAP_FONT_SIZE + 12
-    block_y = int(H * 0.72)     # sit in lower quarter of 9:16 frame
-    pad     = 20
+    line_h  = font_size + max(3, round(12 * W / 1080))
+    block_y = int(H * 0.68)     # sit in lower quarter of 9:16 frame
+    pad     = max(4, round(20 * W / 1080))
 
     # Build pill-background overlay
     overlay = Image.new("RGBA", (W, H), (0, 0, 0, 0))
@@ -659,95 +660,47 @@ def _get_caption_at(captions: list, t_global: float) -> str:
     return ""
 
 
-def _build_shorts_clip(all_images: list, total_duration: float,
+def _fit_scene_asset(frame):
+    # Preserve diagrams and terminal recordings instead of cropping their edges.
+    return np.array(ImageOps.pad(Image.fromarray(frame), (W, H), color=C["background"]))
+
+
+def _build_shorts_clip(scenes: list, total_duration: float,
                        captions: list) -> VideoClip:
-    """
-    Builds the full Shorts video as one VideoClip with smooth crossfades
-    between images instead of hard cuts.
-
-    How crossfading works inside a single VideoClip make_frame():
-      Each image occupies a slot of SHORTS_IMG_DURATION seconds.
-      During the last CROSSFADE_DURATION seconds of a slot, we linearly
-      blend the current image (zoomed) with the next image (zoomed from t=0)
-      using alpha = (img_t - crossfade_start) / CROSSFADE_DURATION.
-      This is equivalent to what moviepy's crossfadein/crossfadeout do,
-      but computed inline so we stay in a single VideoClip (much faster
-      to render than concatenating dozens of small clips with transitions).
-    """
-    n_imgs    = len(all_images) if all_images else 0
-    xfade_dur = float(getattr(config, "CROSSFADE_DURATION", 0.7))
-    # Clamp so fade never exceeds half the image slot (avoids triple-blend)
-    xfade_dur = min(xfade_dur, SHORTS_IMG_DURATION * 0.45)
-
+    """Render only the assets belonging to the scene currently being narrated."""
     def make_frame(t):
-        # ── Which image slot are we in? ──────────────────────
-        if n_imgs > 0:
-            slot      = t / SHORTS_IMG_DURATION          # float slot index
-            cur_idx   = int(slot) % n_imgs
-            img_t     = t % SHORTS_IMG_DURATION          # time within slot
-
-            # Ken Burns uses time since this image's slot START (global anchor).
-            # This keeps zoom continuous across the slot boundary — the incoming
-            # image's zoom progresses from wherever the xfade left off, so there
-            # is no snap back to scale=1.0 on the first frame of the new slot.
-            cur_slot_start = int(slot) * SHORTS_IMG_DURATION
-            cur_kb_t  = t - cur_slot_start               # same as img_t, 0-based
-
-            # Render current image with Ken Burns anchored to slot start
-            cur_frame = _zoom_pulse(all_images[cur_idx], cur_kb_t, cur_idx)
-            cur_frame = _apply_overlay(cur_frame, opacity=0.45)
-            cur_frame = _apply_vignette(cur_frame)
-
-            # ── Crossfade zone: blend into next image ────────
-            xfade_start = SHORTS_IMG_DURATION - xfade_dur
-            if img_t >= xfade_start and n_imgs > 1:
-                # alpha: 0.0 at xfade_start → 1.0 at end of slot
-                raw_alpha = (img_t - xfade_start) / xfade_dur
-                # Smoothstep for a more cinematic S-curve blend
-                alpha = raw_alpha * raw_alpha * (3.0 - 2.0 * raw_alpha)
-
-                next_idx      = (cur_idx + 1) % n_imgs
-                next_slot_start = (int(slot) + 1) * SHORTS_IMG_DURATION
-                # next image's Ken Burns time: how far past its slot start are we?
-                # At xfade_start this is negative (pre-roll), clamp to 0.
-                # This means the next image's zoom starts gently before its slot
-                # begins, so by the time alpha=1 its zoom matches where it will
-                # be at t=0 of its own slot — zero discontinuity.
-                next_kb_t = max(0.0, t - next_slot_start)
-                nxt_frame = _zoom_pulse(all_images[next_idx], next_kb_t, next_idx)
-                nxt_frame  = _apply_overlay(nxt_frame, opacity=0.45)
-                nxt_frame  = _apply_vignette(nxt_frame)
-
-                # Blend
-                frame_np = (cur_frame.astype(np.float32) * (1.0 - alpha) +
-                            nxt_frame.astype(np.float32) * alpha).astype(np.uint8)
-            else:
-                frame_np = cur_frame
+        scene = next((s for s in scenes if s["start"] <= t < s["end"]), scenes[-1])
+        local_t = max(0.0, t - scene["start"])
+        if scene.get("video") is not None:
+            source = scene["video"]
+            # Hold a short clip's last frame rather than replay it as evidence.
+            frame_np = _fit_scene_asset(source.get_frame(min(local_t, max(0, source.duration - 1 / source.fps))))
+        elif scene.get("image") is not None:
+            frame_np = scene["image"]
+        elif scene["images"]:
+            images = scene["images"]
+            index = min(int(local_t / SHORTS_IMG_DURATION), len(images) - 1)
+            img_t = min(local_t - index * SHORTS_IMG_DURATION, SHORTS_IMG_DURATION)
+            frame_np = _zoom_pulse(images[index], img_t, index)
+            xfade = min(float(getattr(config, "CROSSFADE_DURATION", .7)), SHORTS_IMG_DURATION * .45)
+            if index + 1 < len(images) and xfade > 0 and img_t >= SHORTS_IMG_DURATION - xfade:
+                alpha = (img_t - SHORTS_IMG_DURATION + xfade) / xfade
+                next_frame = _zoom_pulse(images[index + 1], 0, index + 1)
+                frame_np = (frame_np * (1 - alpha) + next_frame * alpha).astype(np.uint8)
+            frame_np = _apply_vignette(_apply_overlay(frame_np, opacity=0.12))
         else:
             frame_np = _gradient_bg(t)
-
-        frame = Image.fromarray(frame_np)
-
-        # ── Captions ─────────────────────────────────────────
-        cap_text = _get_caption_at(captions, t)
-        frame    = _draw_shorts_caption(frame, cap_text)
-
-        # ── Top brand strip ───────────────────────────────────
-        draw       = ImageDraw.Draw(frame)
+        frame = _draw_shorts_caption(Image.fromarray(frame_np), _get_caption_at(captions, t))
         if config.brand_text():
-            font_brand = _load_font("bold", 30)
-            brand      = f"▶ {config.brand_text().upper()}"
-            bbox       = draw.textbbox((0, 0), brand, font=font_brand)
-            bw         = bbox[2] - bbox[0]
-            draw.text(((W - bw) // 2, 50), brand, font=font_brand,
-                      fill=(255, 255, 255, 160))
-
-        # NOTE: Flash cut indicator removed — crossfades replace hard cuts.
-
+            draw = ImageDraw.Draw(frame)
+            label = config.brand_text()
+            font = _load_font("bold", max(12, round(30 * W / 1080)))
+            width = draw.textbbox((0, 0), label, font=font)[2]
+            draw.text(((W - width) // 2, int(H * .045)), label, font=font, fill=C["white"],
+                      stroke_width=2, stroke_fill=(0, 0, 0))
         return np.array(frame)
 
     return VideoClip(make_frame, duration=total_duration)
-
 
 
 # ══════════════════════════════════════════════════════════════
@@ -837,21 +790,6 @@ def create_video(script: dict, audio_path: str, output_dir: str,
     if is_shorts:
         print(f"\n   Building Shorts ({W}×{H}, {FPS} fps) …")
 
-        # Flatten all section image lists into one ordered list
-        all_images = []
-        for section in script["sections"]:
-            sid   = section["id"]
-            paths = (image_map or {}).get(sid, [])
-            if isinstance(paths, str):
-                paths = [paths]   # handle single-path fallback
-            for p in paths:
-                arr = _load_bg_image(p)
-                if arr is not None:
-                    all_images.append(arr)
-
-        if not all_images:
-            print("   ⚠ No images loaded — using animated gradient")
-
         # ── FIX: Load and validate SRT with clear diagnostics ──
         srt_path = os.path.join(output_dir, "narration.srt")
         captions = _parse_srt(srt_path)
@@ -865,15 +803,36 @@ def create_video(script: dict, audio_path: str, output_dir: str,
             print("      To fix: delete narration.mp3 + narration.srt and re-run")
             print("      the Narration step, then re-run Video.")
 
-        print(f"   → {len(all_images)} images → "
-              f"~{len(all_images) * SHORTS_IMG_DURATION:.0f}s slideshow material")
-
-        # Attach audio first to know true duration
-        audio      = AudioFileClip(audio_path)
-        total_dur  = audio.duration
-        print(f"   → Audio duration: {total_dur:.1f}s")
-
-        final = _build_shorts_clip(all_images, total_dur, captions)
+        audio = AudioFileClip(audio_path)
+        total_dur = audio.duration
+        from video.scenes import scene_timings
+        timings = scene_timings(script["sections"], captions, total_dur)
+        scenes = []
+        source_clips = []
+        try:
+            for section, (start, end) in zip(script["sections"], timings):
+                scene = {"start": start, "end": end, "images": []}
+                asset = section.get("visual_asset")
+                if asset:
+                    if asset.lower().endswith(".mp4"):
+                        source = VideoFileClip(asset, audio=False)
+                        source_clips.append(source)
+                        scene["video"] = source
+                    else:
+                        with Image.open(asset) as image:
+                            scene["image"] = _fit_scene_asset(np.array(image.convert("RGB")))
+                else:
+                    paths = (image_map or {}).get(section["id"], []) or []
+                    if isinstance(paths, str):
+                        paths = [paths]
+                    scene["images"] = [arr for path in paths if (arr := _load_bg_image(path)) is not None]
+                scenes.append(scene)
+            final = _build_shorts_clip(scenes, total_dur, captions)
+        except Exception:
+            for source in source_clips:
+                source.close()
+            audio.close()
+            raise
         final = final.set_audio(audio)
 
         output_path = os.path.join(output_dir, "final_short.mp4")
@@ -944,16 +903,23 @@ def create_video(script: dict, audio_path: str, output_dir: str,
     print(f"\n   → Rendering {total_secs // 60}m {total_secs % 60}s video…")
     print(f"      (~{max(1, total_secs // 10)} min — go get a coffee ☕)\n")
 
-    final.write_videofile(
-        output_path,
-        fps=FPS,
-        codec="libx264",
-        audio_codec="aac",
-        threads=4,
-        preset=getattr(config, "RENDER_PRESET", "ultrafast"),
-        verbose=False,
-        logger=None,
-    )
+    try:
+        final.write_videofile(
+            output_path,
+            fps=FPS,
+            codec="libx264",
+            audio_codec="aac",
+            threads=4,
+            preset=getattr(config, "RENDER_PRESET", "ultrafast"),
+            verbose=False,
+            logger=None,
+        )
+    finally:
+        final.close()
+        audio.close()
+        if is_shorts:
+            for source in source_clips:
+                source.close()
 
     size_mb = os.path.getsize(output_path) // (1024 * 1024)
     print(f"\n   ✅ Video rendered: {output_path} ({size_mb} MB)")

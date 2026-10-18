@@ -19,12 +19,9 @@ from apis import images as image_apis
 PEXELS_SEARCH = "https://api.pexels.com/v1/search"
 
 FALLBACK_QUERIES = [
-    "space universe stars galaxy",
-    "science technology futuristic",
-    "earth atmosphere clouds aerial",
-    "abstract light particles dark",
-    "dramatic landscape nature",
-    "neon city night lights",
+    "computer server hardware",
+    "software engineer computer workstation",
+    "network cables data center",
 ]
 
 # Every image downloaded this run → credits.json
@@ -150,7 +147,10 @@ def download_images(script: dict, output_dir: str) -> dict:
     for section in script.get("sections", []):
         sid   = section["id"]
         # Collect all image queries defined for this section
-        queries = [section.get("image_query", "science universe space")]
+        if section.get("visual_asset") and os.path.isfile(section["visual_asset"]):
+            image_map[sid] = []
+            continue
+        queries = [section.get("image_query", "computer server hardware")]
         for extra_key in ("image_query_2", "image_query_3", "image_query_4"):
             q = section.get(extra_key, "").strip()
             if q:

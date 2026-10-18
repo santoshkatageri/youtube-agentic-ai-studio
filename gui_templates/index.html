@@ -161,7 +161,7 @@ main { padding: 0 var(--gap) 24px; }
 .field + .field { margin-top: 16px; }
 .label { font-size: 12.5px; font-weight: 500; color: var(--on-card); display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .label small { font-weight: 400; color: var(--on-card-3); font-size: 11.5px; }
-input[type=text], input[type=password], input[type=datetime-local], textarea, select {
+input[type=text], input[type=password], input[type=datetime-local], input[type=number], textarea, select {
   width: 100%; font: inherit; font-size: 13.5px; color: var(--on-card);
   background: var(--card-2); border: 1px solid var(--card-line); border-radius: 10px;
   padding: 9px 12px; outline: none; transition: border-color .2s, background .2s; color-scheme: dark;
@@ -502,6 +502,7 @@ details.more > .more-body { margin-top: 14px; }
   <nav class="tabs" id="tabs">
     <span class="tabs-indicator" id="tabs-indicator"></span>
     <a href="#home" data-view="home">Home</a>
+    <a href="#scenes" data-view="scenes">Scene Board</a>
     <a href="#review" data-view="review">Review &amp; publish<span class="dot"></span></a>
     <a href="#library" data-view="library">My videos</a>
   </nav>
@@ -512,6 +513,54 @@ details.more > .more-body { margin-top: 14px; }
 </header>
 
 <main>
+
+<section class="view" id="view-scenes">
+  <article class="card s24">
+    <h2>Scene Board</h2>
+    <p class="hint">Review one lesson, then match each scene to its narration. Attach Canva graphics or real lab recordings as PNG, JPG, or MP4 (up to 250 MB). Imported clips use the generated narration; their original audio is muted.</p>
+    <p class="hint">Each scene follows its narration. Review the final preview for visual relevance. Short clips hold their last frame.</p>
+    <div id="canva-panel" style="margin-top:20px;padding:16px;border:1px solid var(--on-card-3);border-radius:12px">
+      <h3>Canva</h3>
+      <p class="hint" id="canva-state" role="status">Checking connection…</p>
+      <details id="canva-setup" class="more">
+        <summary>Set up the Canva connection</summary>
+        <div class="more-body">
+          <p class="hint">Create an app in the <a href="https://www.canva.com/developers/" target="_blank" rel="noopener">Canva Developer Portal</a> (<a href="https://www.canva.dev/docs/apps/rest-apis/" target="_blank" rel="noopener">REST API guide</a>). Under Outside Canva, select Start integrating and enable Canva REST APIs. Select the scopes <b>design:meta:read</b> and <b>design:content:read</b>. Register the redirect URL below exactly. In development, use the Canva account authorized to test your app.</p>
+          <p class="hint">Credentials stay in the studio's local .env file. The connection only searches your designs and exports pages; it does not search Canva's stock library or generate new designs.</p>
+          <div class="field"><label class="label" for="canva-client">Client ID</label><input type="text" id="canva-client" autocomplete="off"></div>
+          <div class="field"><label class="label" for="canva-secret">Client secret</label><input id="canva-secret" type="password" autocomplete="new-password"></div>
+          <div class="field"><label class="label" for="canva-redirect">Registered redirect URL</label><input type="text" id="canva-redirect" value="http://127.0.0.1:7070/api/canva/callback"></div>
+          <button class="btn btn-ghost btn-sm" id="canva-save">Save connection settings</button>
+        </div>
+      </details>
+      <div style="display:flex;gap:8px;margin:12px 0;flex-wrap:wrap">
+        <a class="btn btn-white btn-sm" href="/api/canva/connect" id="canva-connect">Connect Canva</a>
+        <button class="btn btn-ghost btn-sm" id="canva-disconnect" hidden>Disconnect Canva</button>
+      </div>
+      <div id="canva-browser" hidden>
+        <div class="row2"><input type="text" id="canva-search" aria-label="Search your Canva designs" placeholder="Search your Canva designs"><button class="btn btn-ghost btn-sm" id="canva-find">Search designs</button></div>
+        <div class="field"><label class="label" for="canva-design">Design</label><select id="canva-design"></select><button class="btn btn-ghost btn-xs" id="canva-more" hidden>Load more designs</button></div>
+        <div class="row2">
+          <div class="field"><label class="label" for="canva-scene">Import into scene</label><select id="canva-scene"></select></div>
+          <div class="field"><label class="label" for="canva-format">Format</label><select id="canva-format"><option value="png">PNG graphic</option><option value="mp4">MP4 video</option></select></div>
+        </div>
+        <div class="field"><label class="label" for="canva-page">Design page number</label><input type="number" id="canva-page" min="1" max="1000" value="1"></div>
+        <button class="btn btn-white btn-sm" id="canva-import">Export from Canva &amp; attach</button>
+        <button class="btn btn-ghost btn-sm" id="canva-check" hidden>Check existing export</button>
+        <button class="btn btn-ghost btn-sm" id="canva-clear" hidden>Clear export selection</button>
+        <p class="hint" id="canva-message" role="status">Choose a scene, then a design page. Assets are downloaded directly into the studio.</p>
+      </div>
+    </div>
+    <h3 id="scene-title" style="margin:16px 0"></h3>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn btn-white" id="scene-save">Save draft</button>
+      <button class="btn btn-ghost" id="scene-render">Approve scenes &amp; render</button>
+      <a class="btn btn-ghost" href="#review">Preview video</a>
+    </div>
+    <p class="hint" id="scene-message" role="status" style="margin-top:12px"></p>
+  </article>
+  <div id="scene-list" class="s24" style="display:grid;gap:16px"></div>
+</section>
 
 <!-- ════════════════════════ HOME ════════════════════════ -->
 <section class="view" id="view-home">
@@ -526,7 +575,7 @@ details.more > .more-body { margin-top: 14px; }
 
       <div class="ask">
         <form class="ask-box" id="ask-form" autocomplete="off">
-          <input type="text" id="topic-input" placeholder="What's your video about?  e.g. Why time slows down near black holes">
+          <input type="text" id="topic-input" placeholder="What's your video about?  e.g. What should an AI agent be allowed to do during an outage?">
           <button class="btn-go" type="submit">Make video →</button>
         </form>
         <div class="ask-row">
@@ -538,6 +587,7 @@ details.more > .more-body { margin-top: 14px; }
         </div>
       </div>
 
+      <label class="toggle"><span><b>Review Shorts scenes first</b><small>Pause after the script, before voice and visuals</small></span><input type="checkbox" id="review-scenes" checked><span class="switch"></span></label>
       <details class="more" style="margin-top:18px">
         <summary>More options</summary>
         <div class="more-body" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px 24px">
@@ -559,18 +609,12 @@ details.more > .more-body { margin-top: 14px; }
             <div class="label">When AI picks the topic <small>stay within a theme</small></div>
             <select id="focus-angle">
               <option value="">Any theme from my channel</option>
-              <option>Theoretical Physics &amp; Time Travel</option>
-              <option>The Dark Forest Theory &amp; Aliens</option>
-              <option>Existential Human Psychology &amp; Illusions</option>
-              <option>Frightening AI Futures &amp; Simulation Theory</option>
-              <option>Mind-bending Mathematical Paradoxes</option>
-              <option>The limits of Human Biology &amp; Immortality</option>
-              <option>Quantum Mechanics &amp; Alternate Realities</option>
-              <option>Cosmic scale, Black Holes, and the end of the Universe</option>
-              <option>Neuroscience &amp; the Mystery of Consciousness</option>
-              <option>Ancient Civilisations &amp; Lost History</option>
-              <option>Cutting-edge Biotechnology &amp; Genetic Engineering</option>
-              <option>The Future of Space Colonisation</option>
+              <option>Linux troubleshooting</option>
+              <option>Containers and Kubernetes</option>
+              <option>CI/CD and GitOps</option>
+              <option>Observability and incident response</option>
+              <option>Platform engineering and developer self-service</option>
+              <option>AI agents in DevOps</option>
             </select>
           </div>
           <div>
@@ -905,12 +949,11 @@ details.more > .more-body { margin-top: 14px; }
         </div>
         <div class="field"><div class="label">Gemini model to try first</div>
           <select id="s-gemini_model">
-            <option value="gemini-2.5-flash">gemini-2.5-flash — best quality</option>
-            <option value="gemini-2.5-flash-lite">gemini-2.5-flash-lite — fast + smart</option>
+            <option value="gemini-3.8-flash">gemini-3.8-flash</option>
+            <option value="gemini-3.5-flash-lite">gemini-3.5-flash-lite</option>
+            <option value="gemini-3.6-flash">gemini-3.6-flash</option>
+            <option value="gemini-3.1-flash-lite">gemini-3.1-flash-lite</option>
             <option value="gemma-4-31b-it">gemma-4-31b-it</option>
-            <option value="gemini-2.0-flash">gemini-2.0-flash — most free quota</option>
-            <option value="gemini-2.0-flash-lite">gemini-2.0-flash-lite — fastest</option>
-            <option value="gemma-3-27b-it">gemma-3-27b-it</option>
           </select></div>
         <div class="field"><div class="label">Groq model</div><input type="text" id="s-groq_model"></div>
         <div class="field"><div class="label">OpenRouter model</div><input type="text" id="s-openrouter_model"></div>
@@ -955,7 +998,7 @@ const clock = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(
 async function api(url, body, method) {
   const opt = body !== undefined ? { method: method || "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : (method ? { method } : {});
   const r = await fetch(url, opt);
-  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+  if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.error || `${r.status} ${r.statusText}`); }
   return r.json();
 }
 function toast(msg, kind = "") {
@@ -989,7 +1032,7 @@ function drawBars(el, values, tips = []) {
 }
 
 /* ═══════════════════════════ navigation ═══════════════════════════ */
-const VIEWS = ["home", "review", "library", "settings"];
+const VIEWS = ["home", "scenes", "review", "library", "settings"];
 const loaders = {};
 function moveIndicator() {
   const a = $("#tabs a.active"), ind = $("#tabs-indicator");
@@ -1094,6 +1137,11 @@ async function onFinished(d) {
     $("#log-details").open = true;
     return;
   }
+  if (d.draft_ready && !d.stop_requested) {
+    setHero("form"); location.hash = "scenes"; loadScenes();
+    toast("Draft ready. Review each scene before rendering.", "ok");
+    return;
+  }
   if (!d.has_video || (lastRequest && !lastRequest[2].includes("video"))) {
     setHero("form");
     if (d.stop_requested) toast("Stopped");
@@ -1147,7 +1195,8 @@ function log(msg) {
 }
 
 async function startRun(topic, surprise) {
-  const steps = $$("#steps input:checked").map(i => i.value);
+  let steps = $$("#steps input:checked").map(i => i.value);
+  if (videoType === "shorts" && $("#review-scenes").checked && steps.includes("script")) steps = steps.filter(s => ["research", "script"].includes(s));
   if (!steps.length) return toast("Turn on at least one step under More options", "err");
   if (!surprise && !topic) { $("#topic-input").focus(); return toast("Type a topic first, or let AI pick one"); }
   lastRequest = [topic, surprise, steps];
@@ -1292,6 +1341,156 @@ function renderLatest() {
     <div style="margin-top:10px"><div class="vid-title">${esc(m.title)}</div><div class="vid-meta"><span>${ago(m.created_at)}</span>${m.duration ? `<span>· ${clock(m.duration)}</span>` : ""}</div></div>
     <div style="display:flex;gap:6px;margin-top:12px;flex-wrap:wrap"><button class="btn btn-white btn-sm" onclick="openProject('${m.id}')">Review &amp; publish</button>${m.yt_url ? `<a class="btn btn-ghost btn-sm" href="${esc(m.yt_url)}" target="_blank" rel="noopener">Watch on YouTube ↗</a>` : ""}</div>`;
 }
+
+/* Scene Board: existing draft format, no external generation calls. */
+let sceneRows = [];
+let canvaContinuation = null, canvaPolling = false, canvaPollCount = 0;
+async function loadScenes() {
+  const message = $("#scene-message");
+  try {
+    const d = await api("/api/scenes");
+    sceneRows = d.sections;
+    $("#scene-title").textContent = d.title;
+    $("#scene-save").disabled = $("#scene-render").disabled = false;
+    $("#scene-list").innerHTML = sceneRows.map(s => `<article class="card" data-scene="${s.id}">
+      <h3>Scene ${s.id}</h3>
+      <div class="field"><label class="label" for="scene-title-${s.id}">Scene label</label><input type="text" id="scene-title-${s.id}" data-key="title" value="${esc(s.title)}"></div>
+      <div class="field"><label class="label" for="scene-narration-${s.id}">Narration</label><textarea id="scene-narration-${s.id}" data-key="narration" rows="4">${esc(s.narration)}</textarea></div>
+      <div class="field"><label class="label" for="scene-brief-${s.id}">What should the viewer see and learn?</label><textarea id="scene-brief-${s.id}" data-key="visual_brief" rows="2">${esc(s.visual_brief || "")}</textarea></div>
+      <div class="field"><label class="label" for="scene-query-${s.id}">Stock search, if no asset is attached</label><input type="text" id="scene-query-${s.id}" data-key="image_query" value="${esc(s.image_query || "")}"></div>
+      ${s.has_asset ? (s.asset_type === "video" ? `<video controls preload="metadata" style="max-width:100%;max-height:280px" src="/api/scenes/${s.id}/asset?t=${Date.now()}"></video>` : `<img style="max-width:100%;max-height:280px" alt="Scene ${s.id} visual" src="/api/scenes/${s.id}/asset?t=${Date.now()}">`) : '<p class="hint">No custom asset attached. Rendering will search for stock images.</p>'}
+      <div class="field"><label class="label" for="scene-file-${s.id}">Attach graphic or recording</label><input id="scene-file-${s.id}" type="file" accept=".png,.jpg,.jpeg,.mp4" data-upload="${s.id}"></div>
+      ${s.has_asset ? `<button class="btn btn-ghost btn-sm" data-remove="${s.id}">Use stock images instead</button>` : ""}
+    </article>`).join("");
+    $$("[data-upload]").forEach(input => input.onchange = async () => {
+      if (!input.files[0]) return;
+      try {
+        await saveScenes();
+        const form = new FormData(); form.append("file", input.files[0]);
+        const response = await fetch(`/api/scenes/${input.dataset.upload}/asset`, {method:"POST", body:form});
+        const result = response.headers.get("content-type")?.includes("application/json") ? await response.json() : {};
+        if (!response.ok || !result.ok) throw Error(result.error || "Upload failed. Check the format and 250 MB limit.");
+        await loadScenes(); toast("Asset attached", "ok");
+      } catch (e) { toast(e.message, "err"); }
+    });
+    $$("[data-remove]").forEach(button => button.onclick = async () => {
+      try {
+        await saveScenes();
+        await api(`/api/scenes/${button.dataset.remove}/asset`, undefined, "DELETE");
+        await loadScenes();
+      } catch(e) { toast(e.message, "err"); }
+    });
+    $("#canva-scene").innerHTML = sceneRows.map(s => `<option value="${s.id}">Scene ${s.id}: ${esc(s.title)}</option>`).join("");
+    await loadCanva();
+    message.textContent = "Save your changes, then approve the scenes to generate voice, find any missing stock visuals, and render. Use the Canva panel to import existing designs directly. Flow and Higgsfield are not called from this board.";
+  } catch(e) {
+    sceneRows = []; $("#scene-list").innerHTML = "";
+    $("#scene-save").disabled = $("#scene-render").disabled = true;
+    await loadCanva();
+    message.textContent = "Choose Short on Home and create a draft first. If a video is being made, wait for it to finish.";
+  }
+}
+async function saveScenes() {
+  const sections = sceneRows.map(s => {
+    const row = {id:s.id};
+    $$("[data-key]", $(`[data-scene="${s.id}"]`)).forEach(input => row[input.dataset.key] = input.value);
+    return row;
+  });
+  const r = await api("/api/scenes", {sections});
+  if (!r.ok) throw Error(r.error);
+}
+$("#scene-save").onclick = async () => {
+  try { await saveScenes(); toast("Draft saved", "ok"); } catch(e) { toast(e.message, "err"); }
+};
+$("#scene-render").onclick = async () => {
+  const button = $("#scene-render"); button.disabled = true;
+  try {
+    await saveScenes();
+    const steps = ["images", "narration", "music", "video"];
+    const r = await api("/api/run", {steps, video_type:"shorts"});
+    if (!r.ok) throw Error(r.error);
+    lastRequest = ["", false, steps]; runSteps = steps; lastRunError = "";
+    status.running = true; setHero("running"); startSSE(); pollOnce(); location.hash = "home";
+  } catch(e) { toast(e.message, "err"); }
+  finally { button.disabled = false; }
+};
+async function loadCanva() {
+  const d = await api("/api/canva/status");
+  $("#canva-state").textContent = d.connected ? "Connected. Search your Canva designs and import a page into a scene." : d.configured ? "Ready to connect. Sign in and allow design reading and exports." : "One-time developer setup is needed to connect Canva inside this app.";
+  $("#canva-redirect").value = d.redirect_uri;
+  $("#canva-setup").open = !d.configured;
+  $("#canva-connect").hidden = d.connected || !d.configured;
+  $("#canva-disconnect").hidden = !d.connected;
+  $("#canva-browser").hidden = !d.connected;
+  $("#canva-import").disabled = !sceneRows.length || !!sessionStorage.getItem("canva-export");
+  $("#canva-check").hidden = $("#canva-clear").hidden = !sessionStorage.getItem("canva-export");
+}
+$("#canva-save").onclick = async () => {
+  try {
+    const r = await api("/api/canva/settings", {client_id:$("#canva-client").value, client_secret:$("#canva-secret").value, redirect_uri:$("#canva-redirect").value});
+    if (!r.ok) throw Error(r.error);
+    $("#canva-secret").value = "";
+    await loadCanva(); toast("Settings saved. Connect Canva to authorize access.", "ok");
+  } catch(e) { toast(e.message, "err"); }
+};
+$("#canva-disconnect").onclick = async () => {
+  try { await api("/api/canva/disconnect", {}); await loadCanva(); } catch(e) { toast(e.message, "err"); }
+};
+async function findCanvaDesigns(more = false) {
+  try {
+    const params = new URLSearchParams({query:$("#canva-search").value});
+    if (more && canvaContinuation) params.set("continuation", canvaContinuation);
+    const d = await api("/api/canva/designs?" + params);
+    if (!more) $("#canva-design").innerHTML = "";
+    d.items.forEach(item => $("#canva-design").add(new Option(item.title, item.id)));
+    canvaContinuation = d.continuation;
+    $("#canva-more").hidden = !canvaContinuation;
+    $("#canva-message").textContent = d.items.length ? "Choose the design page to attach. Supported formats depend on the design and your Canva access." : "No matching designs found.";
+  } catch(e) { $("#canva-message").textContent = e.message; }
+}
+$("#canva-find").onclick = () => findCanvaDesigns();
+$("#canva-more").onclick = () => findCanvaDesigns(true);
+async function checkCanvaExport() {
+  const job = sessionStorage.getItem("canva-export");
+  if (!job || canvaPolling) return;
+  canvaPolling = true;
+  $("#canva-check").disabled = true;
+  try {
+    const d = await api("/api/canva/exports/" + encodeURIComponent(job));
+    if (d.status === "success") {
+      await api("/api/canva/exports/" + encodeURIComponent(job), {});
+      sessionStorage.removeItem("canva-export");
+      await loadScenes(); toast("Canva asset imported into the scene", "ok");
+    } else if (d.status === "failed") {
+      sessionStorage.removeItem("canva-export");
+      $("#canva-message").textContent = "Canva export failed. Check the page, format, and premium element permissions before trying again.";
+      await loadCanva();
+    } else {
+      $("#canva-message").textContent = "Canva is exporting. You can keep working; use Check existing export to resume after a reload.";
+      if (++canvaPollCount < 40) setTimeout(checkCanvaExport, 3000);
+    }
+  } catch(e) {
+    $("#canva-message").textContent = e.message + " Your existing export is retained; check it again instead of starting another.";
+  } finally {
+    canvaPolling = false;
+    $("#canva-check").disabled = false;
+    $("#canva-check").hidden = $("#canva-clear").hidden = !sessionStorage.getItem("canva-export");
+  }
+}
+$("#canva-check").onclick = () => { canvaPollCount = 0; checkCanvaExport(); };
+$("#canva-clear").onclick = () => { sessionStorage.removeItem("canva-export"); loadCanva(); };
+$("#canva-import").onclick = async () => {
+  const button = $("#canva-import"); button.disabled = true;
+  try {
+    await saveScenes();
+    const d = await api("/api/canva/exports", {scene_id:Number($("#canva-scene").value), design_id:$("#canva-design").value, format:$("#canva-format").value, page:Number($("#canva-page").value)});
+    canvaPollCount = 0; sessionStorage.setItem("canva-export", d.job_id);
+    $("#canva-check").hidden = false;
+    await checkCanvaExport();
+  } catch(e) { $("#canva-message").textContent = e.message; }
+  finally { button.disabled = !sceneRows.length || !!sessionStorage.getItem("canva-export"); }
+};
+loaders.scenes = loadScenes;
 
 /* ═══════════════════════════ review ═══════════════════════════ */
 let tags = [], saved = null, thumbMode = "stock", uploadMode = "now";
