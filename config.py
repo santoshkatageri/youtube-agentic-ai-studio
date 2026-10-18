@@ -103,6 +103,9 @@ BRAND_TEXT         = ""
 # (you can switch per video on the Review page)
 THUMB_STYLE        = "impact"
 
+# Optional author watermark on newly rendered videos (both formats).
+WATERMARK_ENABLED = False
+
 # Adds "Made with YAAS by Raunak Patil · https://raunakpatil.com" to descriptions
 CREDIT_YAAS        = True
 

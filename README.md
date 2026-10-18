@@ -93,7 +93,7 @@ topic ──► Research ──► Fact-check ──► Script ──► Visuals
 | 📅 **Schedule uploads** | Upload now or pick a time. Downloads for MP4, thumbnail and captions (SRT). |
 | 📊 **Your stats** | Production history, plus live subscribers and views per upload with a free YouTube Data API key. |
 | 🗂️ **My videos** | Every render archived with its script, sources, photos and metadata. |
-| ©️ **Credits** | Every video carries a semi-transparent **raunakpatil.com** watermark, and descriptions end with *Made with YAAS by Raunak Patil · raunakpatil.com*. |
+| ©️ **Credits** | The author watermark is disabled by default in this local version (`WATERMARK_ENABLED = False` in `config.py`). Descriptions end with *Made with YAAS by Raunak Patil · raunakpatil.com*. |
 | 🎵 **Background music** | Drop MP3s in `music library/` and they're shuffled and looped to fit. |
 
 ---
@@ -228,7 +228,7 @@ Yes. Download the MP4, thumbnail and captions from **Review & publish** and uplo
 <details>
 <summary><b>Can I turn off the raunakpatil.com watermark?</b></summary>
 
-No. The small semi-transparent watermark is part of every video YAAS renders, as credit for the free tool. The description credit line can be switched off in **Settings → Music & publishing**.
+Yes. This local version defaults to `WATERMARK_ENABLED = False` in `config.py`, so newly rendered long videos and Shorts have no author watermark. Set it to `True` to restore it. Existing videos must be rendered again. The description credit line can be switched off separately in **Settings → Music & publishing**. Keep the MIT license notice with copies of the software.
 </details>
 
 <details>
