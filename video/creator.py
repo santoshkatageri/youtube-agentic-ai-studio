@@ -768,6 +768,10 @@ def create_video(script: dict, audio_path: str, output_dir: str,
     image_map for Normal: {section_id: path | None}
     video_type: "normal" | "shorts"
     """
+    if script.get("visual_style") == "motion":
+        from video.motion import create_motion_video
+        return create_motion_video(script, audio_path, output_dir, video_type)
+
     global W, H, FPS
 
     # Clear font cache when dimensions change (Shorts vs Normal have different

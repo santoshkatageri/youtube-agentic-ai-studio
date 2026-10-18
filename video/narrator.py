@@ -8,6 +8,8 @@ Uses MoviePy's AudioFileClip for duration — guaranteed to match the video rend
 """
 import os
 import re
+import json
+import inspect
 import asyncio
 import edge_tts
 import config
@@ -211,11 +213,14 @@ async def _synthesise(text: str, audio_path: str, srt_path: str) -> int:
     Tries SubMaker → raw WordBoundary events → sentence fallback.
     Returns the number of SRT cues written.
     """
+    boundary_options = ({"boundary": "WordBoundary"}
+                        if "boundary" in inspect.signature(edge_tts.Communicate).parameters else {})
     communicate = edge_tts.Communicate(
         text,
         config.VOICE_ID,
         rate=config.VOICE_RATE,
         pitch=config.VOICE_PITCH,
+        **boundary_options,
     )
 
     # Instantiate SubMaker (may not exist in very old edge-tts)
@@ -265,6 +270,9 @@ async def _synthesise(text: str, audio_path: str, srt_path: str) -> int:
     with open(audio_path, "wb") as f:
         for chunk in audio_chunks:
             f.write(chunk)
+
+    with open(os.path.join(os.path.dirname(srt_path), "narration.words.json"), "w", encoding="utf-8") as f:
+        json.dump(word_events, f)
 
     # ── SRT generation cascade ───────────────────────────────────────────────
     cue_count = 0
@@ -320,11 +328,11 @@ def generate_narration(script: dict, output_dir: str) -> str:
         narration = section.get("narration", "").strip()
         if not narration:
             continue
-        if narration.startswith(("Start with", "Deep explanation", "Open with")):
+        if script.get("visual_style") != "motion" and narration.startswith(("Start with", "Deep explanation", "Open with")):
             continue
         parts.append(narration)
 
-    full_text  = "  ...  ".join(parts)
+    full_text  = (" " if script.get("visual_style") == "motion" else "  ...  ").join(parts)
     audio_path = os.path.join(output_dir, "narration.mp3")
     srt_path   = os.path.join(output_dir, "narration.srt")
 

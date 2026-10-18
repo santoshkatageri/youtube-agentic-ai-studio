@@ -299,3 +299,11 @@ Pull requests welcome. Open an issue first for big changes. See [CONTRIBUTING.md
 Made by <a href="https://raunakpatil.com">Raunak Patil</a> · UI styled after <a href="https://raunakpatil.com">raunakpatil.com</a>
 
 </div>
+
+### Script-first motion explainers
+
+Paste your own narration under **Home → Use my script · Motion explainer**.
+Review editable text, screenshot, diagram and closing layouts on the Scene Board,
+then generate a voiceover and render locally. Supports portrait and landscape,
+spoken-phrase timing, emphasis highlights and built-in icons. No Canva setup or
+stock searches are needed. See [SETUP.md](SETUP.md#make-a-motion-explainer-from-your-script).
