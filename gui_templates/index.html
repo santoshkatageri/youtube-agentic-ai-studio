@@ -544,6 +544,7 @@ details.more > .more-body { margin-top: 14px; }
           <div class="field"><label class="label" for="canva-scene">Import into scene</label><select id="canva-scene"></select></div>
           <div class="field"><label class="label" for="canva-format">Format</label><select id="canva-format"><option value="png">PNG graphic</option><option value="mp4">MP4 video</option></select></div>
         </div>
+        <div class="field" id="canva-quality-field" hidden><label class="label" for="canva-quality">Video export size</label><select id="canva-quality"><option value="vertical_1080p">1080p portrait</option><option value="horizontal_1080p">1080p landscape</option></select></div>
         <div class="field"><label class="label" for="canva-page">Design page number</label><input type="number" id="canva-page" min="1" max="1000" value="1"></div>
         <button class="btn btn-white btn-sm" id="canva-import">Export from Canva &amp; attach</button>
         <button class="btn btn-ghost btn-sm" id="canva-check" hidden>Check existing export</button>
@@ -1448,6 +1449,7 @@ async function findCanvaDesigns(more = false) {
     $("#canva-message").textContent = d.items.length ? "Choose the design page to attach. Supported formats depend on the design and your Canva access." : "No matching designs found.";
   } catch(e) { $("#canva-message").textContent = e.message; }
 }
+$("#canva-format").onchange = () => { $("#canva-quality-field").hidden = $("#canva-format").value !== "mp4"; };
 $("#canva-find").onclick = () => findCanvaDesigns();
 $("#canva-more").onclick = () => findCanvaDesigns(true);
 async function checkCanvaExport() {
@@ -1483,7 +1485,7 @@ $("#canva-import").onclick = async () => {
   const button = $("#canva-import"); button.disabled = true;
   try {
     await saveScenes();
-    const d = await api("/api/canva/exports", {scene_id:Number($("#canva-scene").value), design_id:$("#canva-design").value, format:$("#canva-format").value, page:Number($("#canva-page").value)});
+    const d = await api("/api/canva/exports", {scene_id:Number($("#canva-scene").value), design_id:$("#canva-design").value, format:$("#canva-format").value, quality:$("#canva-quality").value, page:Number($("#canva-page").value)});
     canvaPollCount = 0; sessionStorage.setItem("canva-export", d.job_id);
     $("#canva-check").hidden = false;
     await checkCanvaExport();

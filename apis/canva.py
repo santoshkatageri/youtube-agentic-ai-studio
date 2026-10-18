@@ -124,12 +124,17 @@ def designs(query="", continuation=""):
             "continuation": data.get("continuation")}
 
 
-def create_export(design_id, fmt, page):
+def create_export(design_id, fmt, page, quality="vertical_1080p"):
     if not isinstance(design_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", design_id) or fmt not in ("png", "mp4"):
         raise CanvaError("Choose a Canva design and PNG or MP4 format.")
     if type(page) is not int or not 1 <= page <= 1000:
         raise CanvaError("Choose a page number between 1 and 1000.")
-    return _request("POST", "/exports", json={"design_id": design_id, "format": {"type": fmt, "pages": [page]}})["job"]
+    export_format = {"type": fmt, "pages": [page]}
+    if fmt == "mp4":
+        if quality not in ("vertical_1080p", "horizontal_1080p"):
+            raise CanvaError("Choose portrait or landscape 1080p for video exports.")
+        export_format["quality"] = quality
+    return _request("POST", "/exports", json={"design_id": design_id, "format": export_format})["job"]
 
 
 def export_job(job_id):

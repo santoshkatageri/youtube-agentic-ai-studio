@@ -967,7 +967,7 @@ def canva_export():
     body = request.get_json() or {}
     if body.get("scene_id") not in [s["id"] for s in script["sections"]]:
         abort(404)
-    job = canva.create_export(body.get("design_id"), body.get("format"), body.get("page", 1))
+    job = canva.create_export(body.get("design_id"), body.get("format"), body.get("page", 1), body.get("quality", "vertical_1080p"))
     with _canva_import_lock:
         jobs = _canva_jobs()
         jobs[job["id"]] = {"scene_id": body["scene_id"], "format": body["format"],

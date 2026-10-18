@@ -217,7 +217,8 @@ for current Developer Portal labels and account eligibility.
 5. Launch YAAS and open **Scene Board → Set up the Canva connection**. Enter the
    client ID, secret, and registered redirect URL. Save, then click **Connect Canva**.
 6. Approve the requested access on Canva. After returning to YAAS, search your
-   designs, select a page number, choose PNG or MP4, and import it into a scene.
+   designs, select a page number, choose PNG or MP4, and import it into a scene. For MP4, select portrait or
+   landscape 1080p to match the design.
 
 The browser uses the registered `127.0.0.1` origin for sign-in even if you opened
 YAAS at `localhost`. Credentials are stored in the ignored `.env` file. OAuth

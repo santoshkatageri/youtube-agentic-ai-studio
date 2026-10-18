@@ -157,3 +157,12 @@ def test_cross_origin_forms_cannot_change_settings(connection):
     assert response.status_code == 403
     response = client.post("/api/run", json={}, headers={"Origin":"https://another-site.example"})
     assert response.status_code == 403
+
+
+def test_mp4_export_includes_required_quality(connection, monkeypatch):
+    calls = []
+    monkeypatch.setattr(canva, "_request", lambda *a, **kw: calls.append(kw["json"]) or {"job":{"id":"job-1"}})
+    canva.create_export("D123", "mp4", 1, "horizontal_1080p")
+    assert calls[0]["format"] == {"type":"mp4", "pages":[1], "quality":"horizontal_1080p"}
+    with pytest.raises(canva.CanvaError):
+        canva.create_export("D123", "mp4", 1, "invalid")
