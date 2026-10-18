@@ -209,6 +209,9 @@ for current Developer Portal labels and account eligibility.
 1. Open the Canva Developer Portal and create an app. In development, use an
    account authorized to test it; public distribution requires Canva's review.
 2. Under **Outside Canva**, click **Start integrating**. Enable **Canva REST APIs**.
+   If Canva requires MFA, enable it in Account and security first. Accounts using
+   only Google sign-in may need to add a Canva password through Canva’s password
+   reset flow before MFA becomes available. Complete password/MFA setup yourself.
 3. In Configuration, generate a client secret and copy the client ID. Request only
    `design:meta:read` and `design:content:read` for this integration.
 4. Register this redirect URL exactly:
