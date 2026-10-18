@@ -62,7 +62,8 @@ def test_watermark_fits_inside_frame_and_is_semi_transparent(w, h):
     assert 0 < alpha.max() <= creator.WATERMARK_OPACITY + 1e-6
 
 
-def test_watermark_is_burned_into_frames():
+def test_watermark_is_burned_into_frames(monkeypatch):
+    monkeypatch.setattr(config, "WATERMARK_ENABLED", True)
     class FakeClip:
         def fl_image(self, fn):
             self.fn = fn
@@ -74,9 +75,12 @@ def test_watermark_is_burned_into_frames():
     assert frame.sum() == 0                               # original frame untouched
 
 
-def test_watermark_text_is_not_a_setting():
-    assert creator.WATERMARK_TEXT == "raunakpatil.com"
-    assert not any("WATERMARK" in k for k, _ in gui._SETTINGS.values())
+def test_watermark_disabled_leaves_clip_untouched(monkeypatch):
+    monkeypatch.setattr(config, "WATERMARK_ENABLED", False)
+    monkeypatch.setattr(creator, "_watermark_patch", lambda *args: pytest.fail("Watermark should be skipped"))
+    clip = object()
+    assert creator._apply_watermark(clip, 1920, 1080) is clip
+    assert creator._apply_watermark(clip, 1080, 1920) is clip
 
 
 def test_save_env_updates_in_place(tmp_path):

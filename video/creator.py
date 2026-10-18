@@ -755,8 +755,7 @@ def _build_shorts_clip(all_images: list, total_duration: float,
 # ══════════════════════════════════════════════════════════════
 
 # ══════════════════════════════════════════════════════════════
-#  WATERMARK — burned into every frame of every video.
-#  Deliberately not a setting: YAAS credits its author on all output.
+#  WATERMARK — optional author credit, controlled by config.WATERMARK_ENABLED.
 # ══════════════════════════════════════════════════════════════
 
 WATERMARK_TEXT    = "raunakpatil.com"
@@ -792,6 +791,9 @@ def _watermark_patch(w: int, h: int):
 
 
 def _apply_watermark(clip, w: int, h: int):
+    if not getattr(config, "WATERMARK_ENABLED", False):
+        return clip
+
     x, y, rgb, alpha = _watermark_patch(w, h)
     ph, pw = alpha.shape[:2]
 
@@ -934,7 +936,7 @@ def create_video(script: dict, audio_path: str, output_dir: str,
 
         output_path = os.path.join(output_dir, "final_video.mp4")
 
-    # ── WATERMARK (always on) ──────────────────────────────────
+    # ── OPTIONAL WATERMARK ──────────────────────────────────
     final = _apply_watermark(final, W, H)
 
     # ── EXPORT ─────────────────────────────────────────────────
