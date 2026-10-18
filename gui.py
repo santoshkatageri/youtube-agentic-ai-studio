@@ -122,6 +122,17 @@ def _is_shorts(script=None):
 
 def _make_thumbnail(script, image_map, output_dir, bg_override=None):
     """Render thumbnail.jpg in the chosen style — 16:9 for videos, 9:16 for Shorts."""
+    if script.get("visual_style") == "motion":
+        from video.motion import build_clip
+        from PIL import Image
+        size = (540, 960) if script.get("video_type") == "shorts" else (960, 540)
+        clip = build_clip(script, [], max(4, len(script["sections"])*4), size)
+        try:
+            path = os.path.join(output_dir, "thumbnail.jpg")
+            Image.fromarray(clip.get_frame(.8)).save(path, quality=92)
+            return path
+        finally:
+            clip.close()
     from video import thumbnail
     style, text = _thumb_settings(script)
     return thumbnail.render(style, os.path.join(output_dir, "thumbnail.jpg"), text,
@@ -467,7 +478,11 @@ def _run_pipeline(steps: list, topic_override: str = "", video_type: str = "norm
 
         # ── Images ────────────────────────────────────────────
         _state["thumb_bg"] = None
-        if "images" in steps:
+        if script.get("visual_style") == "motion":
+            _state["image_map"] = {}
+            _stage("images", "done")
+            _log("Motion layouts use your text, diagrams and attachments; no stock searches.")
+        elif "images" in steps:
             _stage("images", "running")
             image_map = download_images(script, config.OUTPUT_DIR)
             _state["image_map"] = image_map
@@ -637,6 +652,17 @@ def run_pipeline():
     for s in steps:
         if s in _state["stages"]: _state["stages"][s] = "pending"
     _state["video_type"] = video_type
+    if "video" in steps and (_state.get("script") or {}).get("visual_style") == "motion":
+        from video.motion import validate_motion
+        for section in _state["script"]["sections"]:
+            try:
+                validate_motion(section)
+                if section.get("layout") == "screenshot":
+                    asset = Path(section.get("visual_asset", ""))
+                    if not asset.is_file() or asset.suffix.lower() not in (".png", ".jpg", ".jpeg"):
+                        raise ValueError(f"Scene {section['id']}: attach a PNG/JPG screenshot first.")
+            except ValueError as error:
+                return jsonify(ok=False, error=str(error)), 400
     _stop_event.clear()
     t = threading.Thread(target=_run_pipeline,
                          args=(steps, topic, video_type, focus_angle, use_trends), daemon=True)
@@ -773,7 +799,7 @@ def _scene_script():
                 script = json.load(f)
         except (OSError, ValueError):
             abort(404, "Create a draft on Home first.")
-    if script.get("video_type") != "shorts":
+    if script.get("video_type") != "shorts" and script.get("visual_style") != "motion":
         abort(400, "Scene Board currently supports Shorts. Choose Short on Home.")
     return script
 
@@ -786,10 +812,61 @@ def _save_scene_script(script):
         with open(os.path.join(config.OUTPUT_DIR, "research.json"), "w", encoding="utf-8") as f:
             json.dump(_state["research"], f, indent=2)
     # A scene edit is a new draft; don't overwrite a previously archived video.
-    _state.update(script=script, video_type="shorts", library_id=None, draft_ready=True,
+    _state.update(script=script, video_type=script.get("video_type", "shorts"), library_id=None, draft_ready=True,
                   video_path=None, thumb_path=None, audio_path=None, yt_url=None, description="")
     for key in ("images", "narration", "video"):
         _state["stages"][key] = "pending"
+
+
+@app.route("/api/script-draft", methods=["POST"])
+def script_draft():
+    if _state["running"]:
+        return jsonify(ok=False, error="Wait for the current run to finish."), 409
+    body = request.get_json(silent=True) or {}
+    from video.motion import script_to_scenes
+    try:
+        title = body.get("title", "")
+        if not isinstance(title, str):
+            raise ValueError("Title must be text.")
+        script = script_to_scenes(body.get("script"), title, body.get("video_type", "shorts"))
+    except ValueError as error:
+        return jsonify(ok=False, error=str(error)), 400
+    _state.update(research={"topic": script["title"], "video_title": script["title"],
+                            "input_source": "user_script"}, image_map={}, error=None,
+                  stop_requested=False, thumb_bg=None, thumb_text=None, thumb_bg_index=0)
+    _save_scene_script(script)
+    for key in ("research", "script"):
+        _state["stages"][key] = "done"
+    # Previous stock attribution does not belong to a script-only explainer.
+    Path(config.OUTPUT_DIR, "credits.json").write_text("[]", encoding="utf-8")
+    return jsonify(ok=True, scenes=len(script["sections"]))
+
+
+@app.route("/api/scenes/<int:sid>/preview")
+def motion_scene_preview(sid):
+    if _state["running"]:
+        return jsonify(ok=False, error="Wait for the current run to finish."), 409
+    script = _scene_script()
+    if script.get("visual_style") != "motion":
+        abort(400)
+    section = next((s for s in script["sections"] if s["id"] == sid), None)
+    if section is None:
+        abort(404)
+    from video.motion import build_clip
+    import io
+    from PIL import Image
+    size = (540, 960) if script.get("video_type") == "shorts" else (960, 540)
+    try:
+        clip = build_clip({**script, "sections": [section]}, [], 4, size)
+    except ValueError as error:
+        return jsonify(ok=False, error=str(error)), 400
+    try:
+        buffer = io.BytesIO()
+        Image.fromarray(clip.get_frame(3.8)).save(buffer, "PNG")
+        buffer.seek(0)
+        return send_file(buffer, mimetype="image/png", max_age=0)
+    finally:
+        clip.close()
 
 
 @app.route("/api/scenes", methods=["GET", "POST"])
@@ -807,16 +884,24 @@ def scenes():
             if row.get("image_query", section.get("image_query")) != section.get("image_query"):
                 for extra in ("image_query_2", "image_query_3", "image_query_4"):
                     section.pop(extra, None)
-            for key in ("narration", "title", "visual_brief", "image_query"):
+            for key in ("narration", "title", "visual_brief", "image_query", "layout", "emphasis", "icon", "diagram_nodes"):
                 if key in row and isinstance(row[key], str):
                     section[key] = row[key].strip()
+        if script.get("visual_style") == "motion":
+            from video.motion import validate_motion
+            try:
+                for section in script["sections"]:
+                    validate_motion(section)
+            except ValueError as error:
+                return jsonify(ok=False, error=str(error)), 400
         _save_scene_script(script)
     # Don't expose arbitrary filesystem paths to the browser.
     rows = [{k: v for k, v in section.items() if k != "visual_asset"} |
             {"has_asset": bool(section.get("visual_asset")),
              "asset_type": "video" if str(section.get("visual_asset", "")).endswith(".mp4") else "image"}
             for section in script["sections"]]
-    return jsonify(ok=True, title=script.get("title", ""), sections=rows)
+    return jsonify(ok=True, title=script.get("title", ""), sections=rows,
+                   visual_style=script.get("visual_style", "stock"), video_type=script.get("video_type", "shorts"))
 
 
 def _validate_scene_asset(path):

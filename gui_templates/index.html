@@ -517,8 +517,8 @@ details.more > .more-body { margin-top: 14px; }
 <section class="view" id="view-scenes">
   <article class="card s24">
     <h2>Scene Board</h2>
-    <p class="hint">Review one lesson, then match each scene to its narration. Attach Canva graphics or real lab recordings as PNG, JPG, or MP4 (up to 250 MB). Imported clips use the generated narration; their original audio is muted.</p>
-    <p class="hint">Each scene follows its narration. Review the final preview for visual relevance. Short clips hold their last frame.</p>
+    <p class="hint" id="scene-intro">Review one lesson, then match each scene to its narration. Attach Canva graphics or real lab recordings as PNG, JPG, or MP4 (up to 250 MB). Imported clips use the generated narration; their original audio is muted.</p>
+    <p class="hint" id="scene-timing-note">Each scene follows its narration. Review the final preview for visual relevance. Short clips hold their last frame.</p>
     <div id="canva-panel" style="margin-top:20px;padding:16px;border:1px solid var(--on-card-3);border-radius:12px">
       <h3>Canva</h3>
       <p class="hint" id="canva-state" role="status">Checking connection…</p>
@@ -587,6 +587,18 @@ details.more > .more-body { margin-top: 14px; }
           </div>
         </div>
       </div>
+
+      <details class="more" style="margin:20px 0">
+        <summary>Use my script · Motion explainer</summary>
+        <form id="script-form" class="more-body">
+          <p class="hint">Paste the words you want spoken. YAAS keeps your wording and creates editable scenes with animated text, screenshots, diagrams and a closing card. Blank lines mark scene breaks; long paragraphs are split automatically. Research and stock searches are skipped.</p>
+          <div class="field"><label class="label" for="script-title">Video title (optional)</label><input type="text" id="script-title" maxlength="160"></div>
+          <div class="field"><label class="label" for="script-input">Voiceover script</label><textarea id="script-input" rows="8" maxlength="20000" required placeholder="Paste your narration here. Use a blank line between scenes."></textarea></div>
+          <div class="field"><label class="label" for="script-format">Format</label><select id="script-format"><option value="shorts">Portrait · 9:16</option><option value="normal">Landscape · 16:9</option></select></div>
+          <p class="hint">Uses the voice selected below. Narration is sent to Microsoft's online speech service when you approve rendering. Timing follows speech timestamps when available; otherwise it is estimated. This does not fact-check your script.</p>
+          <button class="btn btn-white" id="script-create" type="submit">Create Scene Board →</button>
+        </form>
+      </details>
 
       <label class="toggle"><span><b>Review Shorts scenes first</b><small>Pause after the script, before voice and visuals</small></span><input type="checkbox" id="review-scenes" checked><span class="switch"></span></label>
       <details class="more" style="margin-top:18px">
@@ -1200,6 +1212,7 @@ async function startRun(topic, surprise) {
   if (videoType === "shorts" && $("#review-scenes").checked && steps.includes("script")) steps = steps.filter(s => ["research", "script"].includes(s));
   if (!steps.length) return toast("Turn on at least one step under More options", "err");
   if (!surprise && !topic) { $("#topic-input").focus(); return toast("Type a topic first, or let AI pick one"); }
+  sceneStyle = "stock";
   lastRequest = [topic, surprise, steps];
   runSteps = steps.length === 6 ? [] : steps;
   lastRunError = "";
@@ -1219,7 +1232,18 @@ async function startRun(topic, surprise) {
   startSSE(); pollOnce();
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
-function retry() { lastRequest ? startRun(lastRequest[0], lastRequest[1]) : setHero("form"); }
+function retry() { if (sceneStyle === "motion") { location.hash = "scenes"; return; } lastRequest ? startRun(lastRequest[0], lastRequest[1]) : setHero("form"); }
+$("#script-form").onsubmit = async e => {
+  e.preventDefault();
+  const button = $("#script-create"); button.disabled = true;
+  try {
+    const d = await api("/api/script-draft", {script:$("#script-input").value, title:$("#script-title").value, video_type:$("#script-format").value});
+    if (!d.ok) throw Error(d.error);
+    location.hash = "scenes";
+    toast(`${d.scenes} scenes ready. Review before rendering.`, "ok");
+  } catch(e) { toast(e.message, "err"); }
+  finally { button.disabled = false; }
+};
 $("#ask-form").onsubmit = e => { e.preventDefault(); startRun($("#topic-input").value.trim(), false); };
 $("#surprise-btn").onclick = () => startRun("", true);
 $("#stop-btn").onclick = () => api("/api/stop", {}).then(() => { toast("Stopping after the current step…"); $("#run-title").textContent = "Stopping…"; });
@@ -1344,25 +1368,56 @@ function renderLatest() {
 }
 
 /* Scene Board: existing draft format, no external generation calls. */
-let sceneRows = [];
+let sceneRows = [], sceneStyle = "stock", sceneVideoType = "shorts";
 let canvaContinuation = null, canvaPolling = false, canvaPollCount = 0;
 async function loadScenes() {
   const message = $("#scene-message");
   try {
     const d = await api("/api/scenes");
-    sceneRows = d.sections;
+    sceneRows = d.sections; sceneStyle = d.visual_style; sceneVideoType = d.video_type;
+    $("#canva-panel").hidden = sceneStyle === "motion";
+    $("#scene-timing-note").hidden = sceneStyle === "motion";
+    $("#scene-intro").textContent = sceneStyle === "motion" ? "Your narration becomes animated phrases. Choose layouts, emphasis and icons; attach your own screenshots where needed. The layout preview is a still frame; check motion and timing in the finished video." : "Match each scene to its narration. Attach graphics or recordings as PNG, JPG, or MP4. Imported clips use the generated narration; their original audio is muted.";
     $("#scene-title").textContent = d.title;
     $("#scene-save").disabled = $("#scene-render").disabled = false;
     $("#scene-list").innerHTML = sceneRows.map(s => `<article class="card" data-scene="${s.id}">
       <h3>Scene ${s.id}</h3>
+      ${sceneStyle === "motion" ? `
+        <div class="field"><label class="label" for="scene-layout-${s.id}">Layout</label><select id="scene-layout-${s.id}" data-key="layout">${["text", "screenshot", "diagram", "closing"].map(l => `<option value="${l}" ${s.layout === l ? "selected" : ""}>${({text:"Animated text", screenshot:"Screenshot card", diagram:"Connected diagram", closing:"Closing card"})[l]}</option>`).join("")}</select></div>
+        <div class="field"><label class="label" for="scene-emphasis-${s.id}">Emphasis words</label><input type="text" maxlength="200" id="scene-emphasis-${s.id}" data-key="emphasis" value="${esc(s.emphasis || "")}"><p class="hint">Separate words with commas. Matching words receive an accent highlight in the spoken phrase.</p></div>
+        <div class="field"><label class="label" for="scene-icon-${s.id}">Icon</label><select id="scene-icon-${s.id}" data-key="icon">${["none", "terminal", "cloud", "check"].map(i => `<option value="${i}" ${s.icon === i ? "selected" : ""}>${i}</option>`).join("")}</select></div>
+        <div class="field" data-diagram-fields="${s.id}" ${s.layout === "diagram" ? "" : "hidden"}><label class="label" for="scene-nodes-${s.id}">Diagram nodes (diagram layout only)</label><textarea id="scene-nodes-${s.id}" data-key="diagram_nodes" rows="4" maxlength="240" placeholder="Code&#10;Build&#10;Deploy">${esc(s.diagram_nodes || "")}</textarea><p class="hint">2–4 nodes, one per line, up to 48 characters each. Cards and arrows appear in order during this scene.</p></div>
+      ` : ""}
       <div class="field"><label class="label" for="scene-title-${s.id}">Scene label</label><input type="text" id="scene-title-${s.id}" data-key="title" value="${esc(s.title)}"></div>
       <div class="field"><label class="label" for="scene-narration-${s.id}">Narration</label><textarea id="scene-narration-${s.id}" data-key="narration" rows="4">${esc(s.narration)}</textarea></div>
-      <div class="field"><label class="label" for="scene-brief-${s.id}">What should the viewer see and learn?</label><textarea id="scene-brief-${s.id}" data-key="visual_brief" rows="2">${esc(s.visual_brief || "")}</textarea></div>
-      <div class="field"><label class="label" for="scene-query-${s.id}">Stock search, if no asset is attached</label><input type="text" id="scene-query-${s.id}" data-key="image_query" value="${esc(s.image_query || "")}"></div>
-      ${s.has_asset ? (s.asset_type === "video" ? `<video controls preload="metadata" style="max-width:100%;max-height:280px" src="/api/scenes/${s.id}/asset?t=${Date.now()}"></video>` : `<img style="max-width:100%;max-height:280px" alt="Scene ${s.id} visual" src="/api/scenes/${s.id}/asset?t=${Date.now()}">`) : '<p class="hint">No custom asset attached. Rendering will search for stock images.</p>'}
-      <div class="field"><label class="label" for="scene-file-${s.id}">Attach graphic or recording</label><input id="scene-file-${s.id}" type="file" accept=".png,.jpg,.jpeg,.mp4" data-upload="${s.id}"></div>
-      ${s.has_asset ? `<button class="btn btn-ghost btn-sm" data-remove="${s.id}">Use stock images instead</button>` : ""}
+      ${sceneStyle !== "motion" ? `<div class="field"><label class="label" for="scene-brief-${s.id}">What should the viewer see and learn?</label><textarea id="scene-brief-${s.id}" data-key="visual_brief" rows="2">${esc(s.visual_brief || "")}</textarea></div>` : ""}
+      ${sceneStyle !== "motion" ? `<div class="field"><label class="label" for="scene-query-${s.id}">Stock search, if no asset is attached</label><input type="text" id="scene-query-${s.id}" data-key="image_query" value="${esc(s.image_query || "")}"></div>` : ""}
+      <div data-asset-fields="${s.id}" ${sceneStyle === "motion" && s.layout !== "screenshot" ? "hidden" : ""}>
+      ${s.has_asset ? (s.asset_type === "video" ? `<video controls preload="metadata" style="max-width:100%;max-height:280px" src="/api/scenes/${s.id}/asset?t=${Date.now()}"></video>` : `<img style="max-width:100%;max-height:280px" alt="Scene ${s.id} visual" src="/api/scenes/${s.id}/asset?t=${Date.now()}">`) : `<p class="hint">${sceneStyle === 'motion' ? 'Screenshot layout needs a PNG or JPG. Text, diagram and closing layouts render without an attachment.' : 'No custom asset attached. Rendering will search for stock images.'}</p>`}
+      <div class="field"><label class="label" for="scene-file-${s.id}">Attach graphic or recording</label><input id="scene-file-${s.id}" type="file" accept="${sceneStyle === "motion" ? ".png,.jpg,.jpeg" : ".png,.jpg,.jpeg,.mp4"}" data-upload="${s.id}"></div>
+      ${s.has_asset ? `<button class="btn btn-ghost btn-sm" data-remove="${s.id}">Remove attachment</button>` : ""}
+      </div>
+      ${sceneStyle === "motion" ? `<button class="btn btn-ghost btn-sm" data-preview="${s.id}">Save &amp; preview layout</button><div id="scene-preview-${s.id}" style="margin-top:12px"></div>` : ""}
     </article>`).join("");
+    $$("select[data-key=layout]").forEach(select => select.onchange = () => {
+      const id = select.id.replace("scene-layout-", "");
+      $(`[data-diagram-fields="${id}"]`).hidden = select.value !== "diagram";
+      $(`[data-asset-fields="${id}"]`).hidden = select.value !== "screenshot";
+    });
+    $$("[data-preview]").forEach(button => button.onclick = async () => {
+      button.disabled = true;
+      try {
+        await saveScenes();
+        const response = await fetch(`/api/scenes/${button.dataset.preview}/preview?t=${Date.now()}`);
+        if (!response.ok) { const d = await response.json(); throw Error(d.error || "Preview unavailable"); }
+        const url = URL.createObjectURL(await response.blob());
+        const image = new Image(); image.alt = "Motion scene layout preview";
+        image.style.cssText = "max-width:100%;max-height:420px;border-radius:12px";
+        image.onload = () => URL.revokeObjectURL(url); image.src = url;
+        $("#scene-preview-" + button.dataset.preview).replaceChildren(image);
+      } catch(e) { toast(e.message, "err"); }
+      finally { button.disabled = false; }
+    });
     $$("[data-upload]").forEach(input => input.onchange = async () => {
       if (!input.files[0]) return;
       try {
@@ -1382,13 +1437,13 @@ async function loadScenes() {
       } catch(e) { toast(e.message, "err"); }
     });
     $("#canva-scene").innerHTML = sceneRows.map(s => `<option value="${s.id}">Scene ${s.id}: ${esc(s.title)}</option>`).join("");
-    await loadCanva();
-    message.textContent = "Save your changes, then approve the scenes to generate voice, find any missing stock visuals, and render. Use the Canva panel to import existing designs directly. Flow and Higgsfield are not called from this board.";
+    if (sceneStyle !== "motion") await loadCanva();
+    message.textContent = sceneStyle === "motion" ? "Review the layout, emphasis and narration in each scene. Screenshot scenes need a PNG/JPG attachment. Save and preview layouts, then approve to generate the voice and render. Phrase timing uses speech timestamps when available; fallback timing is approximate." : "Save your changes, then approve the scenes to generate voice, find any missing stock visuals, and render. Use the Canva panel to import existing designs directly. Flow and Higgsfield are not called from this board.";
   } catch(e) {
     sceneRows = []; $("#scene-list").innerHTML = "";
     $("#scene-save").disabled = $("#scene-render").disabled = true;
     await loadCanva();
-    message.textContent = "Choose Short on Home and create a draft first. If a video is being made, wait for it to finish.";
+    message.textContent = "Create a draft with Use my script on Home, or choose Short for a researched video. If a video is being made, wait for it to finish.";
   }
 }
 async function saveScenes() {
@@ -1407,8 +1462,8 @@ $("#scene-render").onclick = async () => {
   const button = $("#scene-render"); button.disabled = true;
   try {
     await saveScenes();
-    const steps = ["images", "narration", "music", "video"];
-    const r = await api("/api/run", {steps, video_type:"shorts"});
+    const steps = sceneStyle === "motion" ? ["narration", "music", "video"] : ["images", "narration", "music", "video"];
+    const r = await api("/api/run", {steps, video_type:sceneVideoType});
     if (!r.ok) throw Error(r.error);
     lastRequest = ["", false, steps]; runSteps = steps; lastRunError = "";
     status.running = true; setHero("running"); startSSE(); pollOnce(); location.hash = "home";

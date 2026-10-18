@@ -278,3 +278,32 @@ not publish the app.
 
 Official guides: [Cloudflare Tunnel](https://developers.cloudflare.com/tunnel/get-started/)
 and [Access self-hosted applications](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/self-hosted-public-app/).
+
+## Make a motion explainer from your script
+
+1. On Home, open **Use my script · Motion explainer**.
+2. Paste the narration, optionally enter a title, and choose portrait (9:16)
+   or landscape (16:9). Blank lines mark scene breaks. Long paragraphs split
+   at sentences or into short chunks. Your words are not rewritten or fact-checked.
+3. Select **Create Scene Board**. For each scene, choose:
+   - **Animated text**: spoken phrases with accent highlights.
+   - **Screenshot card**: your PNG/JPG fitted into the frame without cropping.
+   - **Connected diagram**: 2–4 labels, one per line, connected with arrows.
+   - **Closing card**: the final message on a darker background.
+4. Edit scene labels, narration and emphasis words. Choose an optional terminal,
+   cloud or check icon. Diagram labels matching spoken words reveal at those
+   words; unmatched labels use evenly spaced entrances within their scene.
+5. Select **Save & preview layout** for a still preview, then **Approve scenes &
+   render**. YAAS sends the narration to the configured Edge TTS voice and renders
+   locally. Research, script rewriting and stock-image searches are skipped.
+
+Speech word timestamps drive phrase changes and scene boundaries when the
+returned transcript matches. Otherwise caption interpolation or text-length
+estimates are used; the rendering log reports the timing source. Always review
+sync in the final video. Phrases of up to five words fade/slide in; screenshot and diagram
+cards have simple entrance zooms. This is a reusable template, not a general
+animation editor. It does not generate screenshots or arbitrary illustrations.
+
+Inputs are limited to 20,000 characters and 80 scenes. Existing narration/output
+files are reused only through the existing pipeline controls; editing a scene
+invalidates the current generated voice/video. Finished videos go to My videos.
