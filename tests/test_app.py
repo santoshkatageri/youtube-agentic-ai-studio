@@ -100,8 +100,8 @@ def test_keys_are_masked_for_the_browser():
 
 
 def test_model_chain_starts_at_preference():
-    chain = gemini_client.build_chain("gemini-2.0-flash")
-    assert chain[0] == "gemini-2.0-flash" and len(chain) == len(set(chain))
+    chain = gemini_client.build_chain("gemini-3.5-flash-lite")
+    assert chain[0] == "gemini-3.5-flash-lite" and len(chain) == len(set(chain))
     assert gemini_client.build_chain("not-a-model")[0] == gemini_client._ALL_MODELS[0]
 
 
@@ -130,3 +130,26 @@ def test_pollinations_logo_strip_is_cropped(tmp_path):
     strip_pollinations_logo(str(p))
     with Image.open(p) as im:
         assert im.size == (1024, int(576 * 0.93))
+
+
+def test_retired_models_are_absent_from_fallback_chain():
+    chain = gemini_client.build_chain("gemini-2.0-flash")
+    assert chain[0] == "gemini-3.8-flash"
+    assert not any(m.startswith(("gemini-1.5", "gemini-2.0", "gemma-3")) for m in chain)
+
+
+def test_generation_skips_missing_model_without_waiting(monkeypatch):
+    from types import SimpleNamespace
+    tried = []
+    def generate_content(**kwargs):
+        tried.append(kwargs["model"])
+        if len(tried) == 1:
+            raise Exception("404 NOT_FOUND")
+        return SimpleNamespace(text=" Working response ")
+    client = SimpleNamespace(models=SimpleNamespace(generate_content=generate_content))
+    monkeypatch.setattr(gemini_client, "_get_client", lambda: client)
+    monkeypatch.setattr(gemini_client.time, "sleep", lambda *args: pytest.fail("Retired model must not be retried"))
+    monkeypatch.setattr(gemini_client, "last_provider", None)
+    assert gemini_client._generate_gemini("Test", "gemini-3.8-flash") == "Working response"
+    assert tried == ["gemini-3.8-flash", "gemini-3.5-flash-lite"]
+    assert gemini_client.last_provider == "gemini-3.5-flash-lite"

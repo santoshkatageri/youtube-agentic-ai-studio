@@ -18,7 +18,10 @@ os.chdir(ROOT)   # relative paths (output/, token file) resolve the same from an
 # Module-level imports from agents (sys.path is set above)
 from agents.researcher import load_banned_topics, save_banned_topics
 
-from flask import Flask, Response, jsonify, request, send_file, abort
+from flask import Flask, Response, jsonify, request, send_file, abort, redirect, session
+from apis import canva
+import hashlib
+import secrets
 
 import config
 
@@ -33,6 +36,7 @@ _stop_event = threading.Event()   # set() to request pipeline stop
 
 _state = {
     "running":        False,
+    "draft_ready":    False,
     "stop_requested": False,
     "video_type":     "normal",
     "stages": {
@@ -292,7 +296,15 @@ def _archive_project():
     os.makedirs(os.path.join(d, "photos"), exist_ok=True)
     for i, p in enumerate(_thumb_backgrounds(_state.get("image_map"))[:8]):
         shutil.copy2(p, os.path.join(d, "photos", f"{i + 1:02d}.jpg"))
-    for name, obj in (("script.json", script), ("research.json", research), ("credits.json", _load_credits())):
+    archived_script = json.loads(json.dumps(script))
+    for section in archived_script.get("sections", []):
+        asset = section.get("visual_asset")
+        if asset and os.path.isfile(asset):
+            os.makedirs(os.path.join(d, "scene_assets"), exist_ok=True)
+            target = os.path.join(d, "scene_assets", str(section["id"]) + Path(asset).suffix)
+            shutil.copy2(asset, target)
+            section["visual_asset"] = os.path.abspath(target)
+    for name, obj in (("script.json", archived_script), ("research.json", research), ("credits.json", _load_credits())):
         with open(os.path.join(d, name), "w", encoding="utf-8") as f:
             json.dump(obj, f, indent=2)
 
@@ -322,6 +334,7 @@ def _archive_project():
     }
     _write_meta(pid, meta)
     _state["library_id"] = pid
+    _state["script"] = archived_script
     _log(f"Saved to Library: {pid}")
     return pid
 
@@ -371,6 +384,7 @@ def _run_pipeline(steps: list, topic_override: str = "", video_type: str = "norm
     sys.stdout = _Capture(orig_stdout)
     _state["running"] = True
     _state["error"]   = None
+    _state["draft_ready"] = False
     _state["stop_requested"] = False
     _state["started_at"] = time.time()
     _stop_event.clear()
@@ -408,7 +422,8 @@ def _run_pipeline(steps: list, topic_override: str = "", video_type: str = "norm
                 trend_context       = trend_context,
             )
             _state["research"] = research
-            _state.update(library_id=None, thumb_text=None, thumb_bg_index=0)
+            _state.update(library_id=None, thumb_text=None, thumb_bg_index=0,
+                          video_path=None, audio_path=None, script=None, description="", yt_url=None)
             with open(f"{config.OUTPUT_DIR}/research.json", "w", encoding="utf-8") as f:
                 json.dump(research, f, indent=2)
             _stage("research", "done")
@@ -443,6 +458,12 @@ def _run_pipeline(steps: list, topic_override: str = "", video_type: str = "norm
         _check_stop("script")
         script = _state["script"]
         if not script: raise ValueError("No script data — run Script step first.")
+
+        if not any(step in steps for step in ("images", "narration", "music", "video")):
+            _state["draft_ready"] = True
+            _log("Draft ready — review the narration and visuals on the Scene Board.")
+            _log_queue.put(("done", ""))
+            return
 
         # ── Images ────────────────────────────────────────────
         _state["thumb_bg"] = None
@@ -558,6 +579,24 @@ def _run_pipeline(steps: list, topic_override: str = "", video_type: str = "norm
 # ══════════════════════════════════════════════════════════════════════════════
 
 app = Flask(__name__, template_folder="gui_templates")
+app.secret_key = os.getenv("STUDIO_SESSION_SECRET") or secrets.token_hex(32)
+if os.getenv("STUDIO_BEHIND_PROXY") == "1":
+    if len(os.getenv("STUDIO_SESSION_SECRET", "")) < 32:
+        raise RuntimeError("Set a persistent STUDIO_SESSION_SECRET of at least 32 characters before enabling proxy mode.")
+    from werkzeug.middleware.proxy_fix import ProxyFix
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=0, x_proto=1, x_host=0, x_port=0, x_prefix=0)
+    app.config["SESSION_COOKIE_SECURE"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["MAX_CONTENT_LENGTH"] = 250 * 1024 * 1024  # scene uploads, max 250 MB
+
+
+@app.before_request
+def same_origin_writes():
+    # Protect local/provider settings and generation actions from cross-site forms.
+    if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+        origin = request.headers.get("Origin")
+        if origin and origin.rstrip("/") != request.host_url.rstrip("/"):
+            return jsonify(ok=False, error="Cross-origin changes are not allowed."), 403
 
 
 @app.route("/")
@@ -601,6 +640,7 @@ def run_pipeline():
     _stop_event.clear()
     t = threading.Thread(target=_run_pipeline,
                          args=(steps, topic, video_type, focus_angle, use_trends), daemon=True)
+    _state["running"] = True
     t.start()
     return jsonify({"ok": True})
 
@@ -619,6 +659,7 @@ def status():
     from agents import gemini_client
     return jsonify({
         "running":        _state["running"],
+        "draft_ready":    _state["draft_ready"],
         "stop_requested": _state.get("stop_requested", False),
         "stages":         _state["stages"],
         "has_video":      bool(_state.get("video_path") and os.path.exists(_state["video_path"])),
@@ -720,6 +761,263 @@ def save_output():
             json.dump(_state["script"], f, indent=2)
     _sync_library()
     return jsonify({"ok": True})
+
+
+# ── Shorts scene review: local files only, no external generation ───────────────
+
+def _scene_script():
+    script = _state.get("script")
+    if not script:
+        try:
+            with open(os.path.join(config.OUTPUT_DIR, "script.json"), encoding="utf-8") as f:
+                script = json.load(f)
+        except (OSError, ValueError):
+            abort(404, "Create a draft on Home first.")
+    if script.get("video_type") != "shorts":
+        abort(400, "Scene Board currently supports Shorts. Choose Short on Home.")
+    return script
+
+
+def _save_scene_script(script):
+    os.makedirs(config.OUTPUT_DIR, exist_ok=True)
+    with open(os.path.join(config.OUTPUT_DIR, "script.json"), "w", encoding="utf-8") as f:
+        json.dump(script, f, indent=2)
+    if _state.get("research"):
+        with open(os.path.join(config.OUTPUT_DIR, "research.json"), "w", encoding="utf-8") as f:
+            json.dump(_state["research"], f, indent=2)
+    # A scene edit is a new draft; don't overwrite a previously archived video.
+    _state.update(script=script, video_type="shorts", library_id=None, draft_ready=True,
+                  video_path=None, thumb_path=None, audio_path=None, yt_url=None, description="")
+    for key in ("images", "narration", "video"):
+        _state["stages"][key] = "pending"
+
+
+@app.route("/api/scenes", methods=["GET", "POST"])
+def scenes():
+    if _state["running"]:
+        return jsonify(ok=False, error="Wait for the current run to finish."), 409
+    script = json.loads(json.dumps(_scene_script()))
+    if request.method == "POST":
+        rows = (request.get_json(silent=True) or {}).get("sections")
+        if not isinstance(rows, list) or not all(isinstance(r, dict) for r in rows) or [r.get("id") for r in rows] != [s["id"] for s in script["sections"]]:
+            return jsonify(ok=False, error="Scene list changed; reload the board."), 400
+        if any(not isinstance(r.get("narration"), str) or not r["narration"].strip() for r in rows):
+            return jsonify(ok=False, error="Every scene needs narration."), 400
+        for section, row in zip(script["sections"], rows):
+            if row.get("image_query", section.get("image_query")) != section.get("image_query"):
+                for extra in ("image_query_2", "image_query_3", "image_query_4"):
+                    section.pop(extra, None)
+            for key in ("narration", "title", "visual_brief", "image_query"):
+                if key in row and isinstance(row[key], str):
+                    section[key] = row[key].strip()
+        _save_scene_script(script)
+    # Don't expose arbitrary filesystem paths to the browser.
+    rows = [{k: v for k, v in section.items() if k != "visual_asset"} |
+            {"has_asset": bool(section.get("visual_asset")),
+             "asset_type": "video" if str(section.get("visual_asset", "")).endswith(".mp4") else "image"}
+            for section in script["sections"]]
+    return jsonify(ok=True, title=script.get("title", ""), sections=rows)
+
+
+def _validate_scene_asset(path):
+    if Path(path).suffix.lower() == ".mp4":
+        from moviepy.editor import VideoFileClip
+        with VideoFileClip(str(path), audio=False) as clip:
+            if not clip.duration or clip.duration <= 0:
+                raise ValueError("Empty clip")
+            clip.get_frame(0)
+    else:
+        from PIL import Image
+        with Image.open(path) as image:
+            image.verify()
+
+
+@app.route("/api/scenes/<int:sid>/asset", methods=["GET", "POST", "DELETE"])
+def scene_asset(sid):
+    if _state["running"]:
+        return jsonify(ok=False, error="Wait for the current run to finish."), 409
+    script = json.loads(json.dumps(_scene_script()))
+    section = next((s for s in script["sections"] if s["id"] == sid), None)
+    if section is None:
+        abort(404)
+    if request.method == "GET":
+        path = section.get("visual_asset")
+        if not path or not os.path.isfile(path):
+            abort(404)
+        return send_file(os.path.abspath(path), conditional=True)
+    if request.method == "DELETE":
+        section.pop("visual_asset", None)
+    else:
+        upload = request.files.get("file")
+        ext = Path(upload.filename or "").suffix.lower() if upload else ""
+        if ext not in (".png", ".jpg", ".jpeg", ".mp4"):
+            return jsonify(ok=False, error="Upload a PNG, JPG, or MP4."), 400
+        # Unique names keep imported assets in old drafts and library entries intact.
+        import uuid
+        folder = Path(config.OUTPUT_DIR) / "scene_assets"
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / (uuid.uuid4().hex + ext)
+        upload.save(path)
+        try:
+            _validate_scene_asset(path)
+        except Exception:
+            path.unlink(missing_ok=True)
+            return jsonify(ok=False, error="Could not read that image or video."), 400
+        section["visual_asset"] = str(path.resolve())
+    _save_scene_script(script)
+    return jsonify(ok=True)
+
+
+# ── In-app Canva connection ──────────────────────────────────────────────────
+
+@app.errorhandler(canva.CanvaError)
+def canva_error(error):
+    return jsonify(ok=False, error=str(error)), 400
+
+
+@app.route("/api/canva/status")
+def canva_status():
+    return jsonify(ok=True, **canva.status())
+
+
+@app.route("/api/canva/settings", methods=["POST"])
+def canva_settings():
+    body = request.get_json() or {}
+    client_id = str(body.get("client_id", "")).strip()
+    secret = str(body.get("client_secret", "")).strip()
+    uri = str(body.get("redirect_uri", "")).strip()
+    from urllib.parse import urlparse
+    parsed = urlparse(uri)
+    if not client_id or not secret or parsed.scheme not in ("http", "https") or parsed.path != "/api/canva/callback":
+        raise canva.CanvaError("Enter both credentials and a redirect URL ending in /api/canva/callback.")
+    values = {"CANVA_CLIENT_ID": client_id, "CANVA_CLIENT_SECRET": secret, "CANVA_REDIRECT_URI": uri}
+    if any("\n" in v or "\r" in v for v in values.values()):
+        raise canva.CanvaError("Credentials and redirect URL must each fit on one line.")
+    canva.TOKEN_PATH.unlink(missing_ok=True)
+    config.save_env(values)
+    os.chmod(config.ENV_PATH, 0o600)
+    os.environ.update(values)
+    return jsonify(ok=True)
+
+
+@app.route("/api/canva/connect")
+def canva_connect():
+    # Use the registered origin so localhost/127.0.0.1 cookie differences do not break OAuth.
+    from urllib.parse import urlsplit
+    uri = urlsplit(canva.redirect_uri())
+    canonical = f"{uri.scheme}://{uri.netloc}/api/canva/connect"
+    if request.base_url != canonical:
+        return redirect(canonical)
+    state, url = canva.authorization_url()
+    session["canva_state"] = state
+    return redirect(url)
+
+
+@app.route("/api/canva/callback")
+def canva_callback():
+    expected = session.pop("canva_state", "")
+    if not expected or not secrets.compare_digest(expected, request.args.get("state", "")):
+        raise canva.CanvaError("Canva sign-in could not be verified. Use Connect Canva again.")
+    if request.args.get("error"):
+        raise canva.CanvaError("Canva access was not granted. You can reconnect from the Scene Board.")
+    canva.finish_authorization(expected, request.args.get("code", ""))
+    return redirect("/#scenes")
+
+
+@app.route("/api/canva/disconnect", methods=["POST"])
+def canva_disconnect():
+    request.get_json()  # JSON requests cannot be forged by a cross-origin HTML form.
+    canva.disconnect()
+    return jsonify(ok=True)
+
+
+@app.route("/api/canva/designs")
+def canva_designs():
+    return jsonify(ok=True, **canva.designs(request.args.get("query", ""), request.args.get("continuation", "")))
+
+
+def _draft_fingerprint(script):
+    return hashlib.sha256(json.dumps(script, sort_keys=True).encode()).hexdigest()
+
+
+_canva_import_lock = threading.RLock()
+
+
+def _canva_jobs():
+    path = Path(config.OUTPUT_DIR) / "canva_exports.json"
+    try:
+        return json.loads(path.read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def _save_canva_jobs(jobs):
+    path = Path(config.OUTPUT_DIR) / "canva_exports.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(json.dumps(jobs))
+    temporary.replace(path)
+
+
+@app.route("/api/canva/exports", methods=["POST"])
+def canva_export():
+    if _state["running"]:
+        return jsonify(ok=False, error="Wait for the current run to finish."), 409
+    script = _scene_script()
+    body = request.get_json() or {}
+    if body.get("scene_id") not in [s["id"] for s in script["sections"]]:
+        abort(404)
+    job = canva.create_export(body.get("design_id"), body.get("format"), body.get("page", 1), body.get("quality", "vertical_1080p"))
+    with _canva_import_lock:
+        jobs = _canva_jobs()
+        jobs[job["id"]] = {"scene_id": body["scene_id"], "format": body["format"],
+                           "design_id": body["design_id"], "page": body.get("page", 1),
+                           "fingerprint": _draft_fingerprint(script), "attached": False}
+        _save_canva_jobs(jobs)
+    return jsonify(ok=True, job_id=job["id"])
+
+
+@app.route("/api/canva/exports/<job_id>", methods=["GET", "POST"])
+def canva_export_status(job_id):
+    with _canva_import_lock:
+        jobs = _canva_jobs()
+        record = jobs.get(job_id)
+        if not record:
+            abort(404)
+        job = canva.export_job(job_id)
+        if request.method == "GET":
+            return jsonify(ok=True, status=job["status"], attached=record["attached"])
+        request.get_json()
+        if record["attached"]:
+            return jsonify(ok=True)
+        if _state["running"]:
+            return jsonify(ok=False, error="Wait for the current run to finish."), 409
+        script = json.loads(json.dumps(_scene_script()))
+        if _draft_fingerprint(script) != record["fingerprint"]:
+            raise canva.CanvaError("The draft changed during export. Select the scene and import again.")
+        if job["status"] != "success" or len(job.get("urls", [])) != 1:
+            raise canva.CanvaError("Canva export is not ready or did not produce a single PNG/MP4. Check the selected page and format.")
+        import uuid
+        folder = Path(config.OUTPUT_DIR) / "scene_assets"
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / (uuid.uuid4().hex + "." + record["format"])
+        try:
+            canva.download_export(job["urls"][0], path)
+            _validate_scene_asset(path)
+            if _state["running"] or _draft_fingerprint(_scene_script()) != record["fingerprint"]:
+                raise canva.CanvaError("The draft changed while downloading. Import again when editing is finished.")
+            section = next(s for s in script["sections"] if s["id"] == record["scene_id"])
+            section["visual_asset"] = str(path.resolve())
+            section["visual_source"] = {"provider": "Canva", "design_id": record["design_id"], "page": record["page"]}
+            _save_scene_script(script)
+        except Exception as error:
+            path.unlink(missing_ok=True)
+            if isinstance(error, canva.CanvaError):
+                raise
+            raise canva.CanvaError("The exported file could not be imported. Choose a single page in PNG or MP4 format.") from None
+        record["attached"] = True
+        _save_canva_jobs(jobs)
+        return jsonify(ok=True)
 
 
 # ── AI description regeneration ───────────────────────────────────────────────

@@ -25,18 +25,12 @@ _BUILTIN_BANNED = [
 
 # All available focus angles — used by researcher AND exposed to the GUI
 FOCUS_ANGLES = [
-    "Theoretical Physics & Time Travel",
-    "The Dark Forest Theory & Aliens",
-    "Existential Human Psychology & Illusions",
-    "Frightening AI Futures & Simulation Theory",
-    "Mind-bending Mathematical Paradoxes",
-    "The limits of Human Biology & Immortality",
-    "Quantum Mechanics & Alternate Realities",
-    "Cosmic scale, Black Holes, and the end of the Universe",
-    "Neuroscience & the Mystery of Consciousness",
-    "Ancient Civilisations & Lost History",
-    "Cutting-edge Biotechnology & Genetic Engineering",
-    "The Future of Space Colonisation",
+    "Linux troubleshooting",
+    "Containers and Kubernetes",
+    "CI/CD and GitOps",
+    "Observability and incident response",
+    "Platform engineering and developer self-service",
+    "AI agents in DevOps",
 ]
 
 
@@ -130,7 +124,7 @@ def research_topic(channel_description: str,
         facts_block = (f"\nVERIFIED BACKGROUND (from Wikipedia / arXiv — build on these, don't contradict them):\n"
                        f"{grounding['facts'][:3500]}\n") if grounding["facts"] else ""
 
-        prompt = f"""You are a top YouTube content strategist for a viral science/tech channel.
+        prompt = f"""You are a top YouTube content strategist for a practical engineering channel.
 
 Channel description:
 {channel_description}
@@ -144,6 +138,7 @@ about "{exact_topic}". The user has explicitly requested this topic.
 BANNED TOPICS: Do NOT include any of these in the output: {banned_str}
 If the requested topic conflicts with a banned one, still write about it (user override).
 
+Avoid sensational claims, invented tests, and unsupported personal experience.
 Your mission: Research and plan a compelling 6-8 minute YouTube video about "{exact_topic}".
 {facts_block}
 Respond with ONLY a valid JSON object. No markdown fences, no explanation:
@@ -151,15 +146,15 @@ Respond with ONLY a valid JSON object. No markdown fences, no explanation:
 {{
   "topic": "{exact_topic}",
   "why_now": "Why this topic resonates with audiences right now",
-  "video_title": "MIND-BLOWING YouTube title under 70 characters about {exact_topic}",
+  "video_title": "Specific, accurate YouTube title under 70 characters about {exact_topic}",
   "description": "2-sentence YouTube description optimised for SEO and curiosity",
-  "hook_question": "The single most mind-blowing question this video answers",
+  "hook_question": "The single practical question this video answers",
   "key_points": [
     "First key concept or revelation about {exact_topic}",
-    "Second key concept — the twist or surprise",
+    "Second key concept — investigation",
     "Third key concept — deeper implication",
     "Fourth key concept — real-world consequence",
-    "Fifth key concept — the philosophical angle"
+    "Fifth key concept — verification and limitations"
   ],
   "target_audience": "Exactly who will watch and share this",
   "tags": ["tag1","tag2","tag3","tag4","tag5","tag6","tag7","tag8"],
@@ -193,7 +188,7 @@ Respond with ONLY a valid JSON object. No markdown fences, no explanation:
             "for timeliness and say so in \"why_now\". If none fit, ignore them.\n"
         )
 
-    prompt = f"""You are a top YouTube content strategist for a viral science/tech channel.
+    prompt = f"""You are a top YouTube content strategist for a practical engineering channel.
 
 Channel description:
 {channel_description}
@@ -203,24 +198,25 @@ CRITICAL INSTRUCTIONS FOR THIS RUN:
 2. BANNED TOPICS: Do NOT suggest any of the following — we already made videos about them: {banned_str}. You must give me a brand new, highly original concept.
 3. Cache Bust ID: {time.time()} (Ensure completely unique output).
 {trend_block}
+Avoid sensational claims, invented tests, and unsupported personal experience.
 Your mission:
 1. Think of 3-4 highly compelling video topic ideas within that specific theme.
-2. Select the single BEST topic that is genuinely mind-blowing, timely, and explainable in 6-8 minutes.
+2. Select the single BEST topic that is useful, evidence-based, and explainable in 6-8 minutes.
 
 Respond with ONLY a valid JSON object. No markdown fences, no explanation:
 
 {{
   "topic": "The specific video topic",
   "why_now": "Why this topic is hitting the zeitgeist right now",
-  "video_title": "MIND-BLOWING YouTube title under 70 characters",
+  "video_title": "Specific, accurate YouTube title under 70 characters",
   "description": "2-sentence YouTube description optimised for SEO and curiosity",
-  "hook_question": "The single most mind-blowing question this video answers",
+  "hook_question": "The single practical question this video answers",
   "key_points": [
     "First key concept or revelation",
-    "Second key concept — the twist or surprise",
+    "Second key concept — investigation",
     "Third key concept — deeper implication",
     "Fourth key concept — real-world consequence",
-    "Fifth key concept — the philosophical angle"
+    "Fifth key concept — verification and limitations"
   ],
   "target_audience": "Exactly who will watch and share this",
   "tags": ["tag1","tag2","tag3","tag4","tag5","tag6","tag7","tag8"],

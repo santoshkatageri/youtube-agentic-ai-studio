@@ -53,3 +53,7 @@ desktop.ini
 
 # ── Logs ─────────────────────────────────
 *.log
+
+# Local Canva OAuth credentials
+.canva_tokens.json
+.canva_tokens.tmp
